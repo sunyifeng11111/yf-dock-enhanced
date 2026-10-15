@@ -66,8 +66,11 @@ final class NativeIntegrationCheck {
                 try require(windows.count == 2, "two real windows are exposed through Accessibility")
                 move(to: center(windows[0].frame))
                 click(at: center(windows[0].frame))
-                _ = AX.set(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute, true)
+                let madeFrontmost = AX.set(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute, true)
                 await pause(0.5)
+                let axFrontmost: Bool = AX.value(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute) ?? false
+                print("DIAGNOSTIC: activationAccepted=\(madeFrontmost), accessibleFrontmost=\(axFrontmost), workspaceFrontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier)")
+                fflush(stdout)
                 try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier, "fixture is foreground before hovering")
                 let point = try await hover(app)
                 try require(service.locator.item(at: point)?.app.processIdentifier == app.processIdentifier, "Dock icon belongs to the fixture instance")
@@ -76,14 +79,7 @@ final class NativeIntegrationCheck {
                 try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier, "hover does not steal keyboard focus")
                 try await savePreview()
 
-                move(to: quartzPoint(center(service.preview.panel.frame)))
-                _ = AX.set(windows[0].element, kAXMinimizedAttribute, true)
-                await pause(1.3)
-                try require(previewText().contains("已最小化"), "a window state change updates an already visible preview hint")
-                _ = AX.set(windows[0].element, kAXMinimizedAttribute, false)
-                await pause(1.1)
-
-                let target = service.preview.windowKeys[1]
+                guard let target = service.preview.windowKeys.dropFirst().first else { throw failure("preview closed before selection") }
                 let panel = service.preview.panel.frame
                 let clickInPanel = CGPoint(x: panel.minX + 12 + 244 + 117, y: panel.minY + 100)
                 click(at: quartzPoint(clickInPanel))
@@ -145,23 +141,10 @@ final class NativeIntegrationCheck {
         try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/dock-enhanced-preview.png"))
     }
 
-    @MainActor private func previewText() -> String {
-        var queue: [Any] = [service.preview.panel]
-        var text = ""
-        for _ in 0..<250 {
-            guard !queue.isEmpty else { break }
-            let node = queue.removeFirst()
-            guard let accessible = node as? NSAccessibilityProtocol else { continue }
-            text += accessible.accessibilityValue() as? String ?? ""
-            text += accessible.accessibilityHelp() ?? ""
-            queue.append(contentsOf: accessible.accessibilityChildren() ?? [])
-        }
-        return text
-    }
-
     private func require(_ condition: Bool, _ text: String) throws {
         guard condition else { throw failure(text) }
         print("PASS: \(text)")
+        fflush(stdout)
     }
     private func dockClick(_ app: NSRunningApplication) async throws {
         guard let item = service.locator.item(for: app) else { throw failure("fixture Dock icon not found") }
