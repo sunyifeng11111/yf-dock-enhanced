@@ -104,6 +104,7 @@ final class DockLocator {
 final class WindowController {
     private var recent: [pid_t: Int] = [:]
     private var minimizedByClick: [pid_t: Int] = [:]
+    private var revealGeneration = 0
     private let policy = DockClickPolicy()
 
     func windows(of app: NSRunningApplication) -> [AppWindow] {
@@ -111,19 +112,29 @@ final class WindowController {
         AXUIElementSetMessagingTimeout(owner, 0.06)
         let elements: [AXUIElement] = AX.value(owner, kAXWindowsAttribute) ?? []
         let focused: AXUIElement? = AX.value(owner, kAXFocusedWindowAttribute)
-        let windows = elements.enumerated().compactMap { index, element -> AppWindow? in
+        var seen: [AXUIElement] = []
+        let windows = elements.compactMap { element -> AppWindow? in
             AXUIElementSetMessagingTimeout(element, 0.06)
             let role: String? = AX.value(element, kAXRoleAttribute)
             guard role == kAXWindowRole, let frame = AX.rect(element), frame.width > 1, frame.height > 1 else { return nil }
+            guard !seen.contains(where: { CFEqual($0, element) }) else { return nil }
+            let rawTitle: String? = AX.value(element, kAXTitleAttribute)
+            let title = rawTitle ?? ""
+            let subrole: String? = AX.value(element, kAXSubroleAttribute)
+            let isFocused = focused.map { CFEqual(element, $0) } ?? false
+            // Frameworks can expose untitled backdrop/panel windows in AXWindows.
+            // Preserve real untitled standard windows and active custom dialogs.
+            if rawTitle?.isEmpty == true, let subrole, subrole != kAXStandardWindowSubrole && subrole != kAXDialogSubrole,
+               !isFocused, (AX.value(element, kAXMainAttribute) as Bool?) == false { return nil }
+            seen.append(element)
             let id = Int(CFHash(element))
             var writable = DarwinBoolean(false)
             AXUIElementIsAttributeSettable(element, kAXMinimizedAttribute as CFString, &writable)
-            let title: String = AX.value(element, kAXTitleAttribute) ?? ""
             let minimized: Bool = AX.value(element, kAXMinimizedAttribute) ?? false
             let fullScreen: Bool = AX.value(element, "AXFullScreen") ?? false
-            if let focused, CFEqual(element, focused), !minimized { recent[app.processIdentifier] = id }
+            if isFocused, !minimized { recent[app.processIdentifier] = id }
             return AppWindow(element: element, key: WindowKey(pid: app.processIdentifier, id: id),
-                             title: title.isEmpty ? "窗口 \(index + 1)" : title, frame: frame,
+                             title: title.isEmpty ? "窗口 \(seen.count)" : title, frame: frame,
                              state: WindowState(id: id, minimized: minimized, canMinimize: writable.boolValue, fullScreen: fullScreen))
         }
         if !windows.contains(where: { $0.key.id == recent[app.processIdentifier] }) {
@@ -154,6 +165,7 @@ final class WindowController {
         switch action {
         case .native: return false
         case .minimize(let id):
+            cancelDeferredReveal()
             guard let window = windows.first(where: { $0.key.id == id }),
                   (AX.value(window.element, "AXFullScreen") as Bool?) != true,
                   AX.set(window.element, kAXMinimizedAttribute, true) else { return false }
@@ -167,20 +179,64 @@ final class WindowController {
 
     @discardableResult
     func reveal(_ window: AppWindow, app: NSRunningApplication) -> Bool {
+        cancelDeferredReveal()
+        let generation = revealGeneration
         let minimized: Bool = AX.value(window.element, kAXMinimizedAttribute) ?? window.state.minimized
         if minimized && !AX.set(window.element, kAXMinimizedAttribute, false) { return false }
+        if minimized {
+            recent[app.processIdentifier] = window.key.id
+            minimizedByClick.removeValue(forKey: app.processIdentifier)
+            finishRestore(window, app: app, generation: generation, attempt: 0)
+            return true
+        }
+        let raised = bringForward(window, app: app)
+        recent[app.processIdentifier] = window.key.id
+        minimizedByClick.removeValue(forKey: app.processIdentifier)
+        return raised
+    }
+
+    private func finishRestore(_ window: AppWindow, app: NSRunningApplication, generation: Int, attempt: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, generation == self.revealGeneration, !app.isTerminated else { return }
+            // A restored window can temporarily disappear from AXWindows while the
+            // Dock animation runs. Raising it then may time out even after unminimize
+            // succeeded. Refresh the element and retry outside the mouse event tap.
+            let current = self.windows(of: app).first { $0.key == window.key && !$0.state.minimized }
+            if current != nil, !app.isActive {
+                let owner = AXUIElementCreateApplication(app.processIdentifier)
+                AXUIElementSetMessagingTimeout(owner, 0.06)
+                _ = AX.set(owner, kAXFrontmostAttribute, true)
+                app.activate(options: [])
+                if attempt < 12 { self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1) }
+                return
+            }
+            if let current, self.bringForward(current, app: app) {
+                self.recent[app.processIdentifier] = current.key.id
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    guard let self, generation == self.revealGeneration, attempt < 12 else { return }
+                    if NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                        self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1)
+                    }
+                }
+                return
+            }
+            if attempt < 12 { self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1) }
+        }
+    }
+
+    private func bringForward(_ window: AppWindow, app: NSRunningApplication) -> Bool {
         let owner = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(owner, 0.06)
         if !AX.set(owner, kAXFrontmostAttribute, true) { app.activate(options: []) }
         let raised = AXUIElementPerformAction(window.element, kAXRaiseAction as CFString) == .success
         _ = AX.set(window.element, kAXMainAttribute, true)
         _ = AX.set(window.element, kAXFocusedAttribute, true)
-        recent[app.processIdentifier] = window.key.id
-        minimizedByClick.removeValue(forKey: app.processIdentifier)
         return raised
     }
 
-    func userChangedWindow() { minimizedByClick.removeAll() }
+    func cancelDeferredReveal() { revealGeneration += 1 }
+
+    func userChangedWindow() { minimizedByClick.removeAll(); cancelDeferredReveal() }
 
     func forgetTerminatedApps() {
         let pids = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))

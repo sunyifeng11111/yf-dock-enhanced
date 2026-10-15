@@ -27,6 +27,8 @@
 - macOS 14 及以上。本次本机打包为 Apple Silicon 版本。
 - 全屏窗口、不可最小化窗口和未运行应用沿用原生 Dock 行为。
 - 最小化窗口使用最后一次缓存画面；没有缓存时显示应用图标和窗口标题。
+- 不显示重复的辅助功能窗口条目、无标题的后台内部辅助窗口。正常的无标题窗口仍会显示。
+- 恢复最小化窗口时，会在窗口就绪后完成前台激活；新的鼠标或键盘操作会取消尚未完成的激活，避免抢回焦点。
 - 缩略图仅存在内存中，最多保留 64 张；暂停或退出会清除缓存。应用没有网络请求。
 - 不同应用对辅助功能的支持可能不同。原生集成已用两个独立 AppKit 窗口验证；多显示器、不同 Dock 方向、自动隐藏和各第三方应用仍需实际兼容性检查。
 - 本地应用使用临时签名。首次安装或重新构建后，系统可能要求重新授权。建议在固定位置运行。
@@ -47,6 +49,7 @@ scripts/build-app.sh
 swift run --build-system native DockCoreChecks
 scripts/check-native.sh
 swift run --build-system native DockEnhanced --check-chrome-preview
+swift run --build-system native DockEnhanced --check-window-count com.openai.codex 1 --select --from-app com.apple.mail --minimized
 ```
 
 第一条验证点击行为入口，包括多窗口选择、连续最小化/恢复、已关闭窗口、后台应用和不支持的窗口。
@@ -54,6 +57,8 @@ swift run --build-system native DockEnhanced --check-chrome-preview
 第二条启动专用的双窗口测试应用，验证真实 Dock 悬停、画面捕获、缩略图选择、最小化、缓存预览和恢复。测试会短暂移动鼠标与切换测试窗口，完成后退出测试应用并恢复原来的鼠标位置与前台应用；请在桌面空闲时运行。需要当前运行环境已获得辅助功能和屏幕录制权限。
 
 第三条检查实际 Chrome 可见窗口是否生成了缩略图；不会输出网页标题、网址或保存网页截图。没有可见 Chrome 窗口时返回“检查不可用”。
+
+第四条是本机 ChatGPT 的最小化恢复检查（本机应用标识为 `com.openai.codex`），需 ChatGPT 只有一个正常窗口且邮件已运行。也可替换目标标识、预期数量和来源应用标识。检查实际点击预览后，窗口已展开并保持前台；缺少目标预览或未实际触发选择时返回“检查不可用”。会恢复原来的最小化状态、前台应用和鼠标位置，不记录窗口标题或正文。运行前退出已运行的 Dock Enhanced，避免两份窗口控制工具相互干扰。
 
 ## 开发入口
 

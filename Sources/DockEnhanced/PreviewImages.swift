@@ -17,10 +17,15 @@ final class PreviewImages {
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
                 guard self.generation == requestedGeneration else { return }
+                let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+                let transparent = Set(windowInfo.compactMap { info -> CGWindowID? in
+                    guard (info[kCGWindowAlpha as String] as? Double) == 0 else { return nil }
+                    return info[kCGWindowNumber as String] as? CGWindowID
+                })
                 var used = Set<CGWindowID>()
                 for window in windows where !window.state.minimized {
                     let candidates = content.windows.filter {
-                        $0.owningApplication?.processID == window.key.pid && !used.contains($0.windowID)
+                        $0.owningApplication?.processID == window.key.pid && !used.contains($0.windowID) && !transparent.contains($0.windowID)
                     }
                     // Geometry plus title disambiguates identical browser titles. Never guess
                     // from title alone when more than one capture candidate matches.

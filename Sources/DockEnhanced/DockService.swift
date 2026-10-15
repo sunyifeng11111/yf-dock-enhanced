@@ -98,6 +98,7 @@ final class DockService {
         if event.getIntegerValueField(.eventSourceUserData) == replayMarker { return Unmanaged.passUnretained(event) }
         if type == .leftMouseUp || type == .rightMouseUp { hoverPolicy.endInteraction() }
         if type == .leftMouseDown || type == .rightMouseDown {
+            controller.cancelDeferredReveal()
             let item = locator.item(at: event.location)
             if let item {
                 hoverPolicy.beginInteraction(appID: item.app.processIdentifier)

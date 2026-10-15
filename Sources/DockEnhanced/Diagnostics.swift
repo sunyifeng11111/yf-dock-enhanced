@@ -19,7 +19,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
             let size = index == 0 ? CGSize(width: 540, height: 360) : CGSize(width: 240, height: 420)
             let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: 220 + index * 70, y: 250 + index * 45), size: size),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = index == 0 ? "测试窗口 · 紫色" : "测试窗口 · 绿色"
+            window.title = index == 0 ? "" : "测试窗口 · 绿色"
             let view = NSView(frame: CGRect(origin: .zero, size: size))
             view.wantsLayer = true
             view.layer?.backgroundColor = (index == 0 ? NSColor.systemPurple : NSColor.systemTeal).cgColor
@@ -34,6 +34,14 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             windows.append(window)
         }
+        let helper = NSPanel(contentRect: windows[0].frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        helper.isOpaque = false
+        helper.backgroundColor = .clear
+        helper.alphaValue = 0
+        helper.ignoresMouseEvents = true
+        helper.isReleasedWhenClosed = false
+        helper.orderFront(nil)
+        windows.append(helper)
         NSApp.activate(ignoringOtherApps: true)
     }
 }
@@ -64,11 +72,16 @@ final class NativeIntegrationCheck {
                 fixture = try await NSWorkspace.shared.openApplication(at: fixtureURL, configuration: configuration)
                 await pause(1.5)
                 guard let app = fixture else { throw failure("fixture failed to launch") }
+                let raw: [AXUIElement] = AX.value(AXUIElementCreateApplication(app.processIdentifier), kAXWindowsAttribute) ?? []
+                print("DIAGNOSTIC: fixture raw windows=\(raw.count), subroles=\(raw.map { (AX.value($0, kAXSubroleAttribute) as String?) ?? "?" })")
+                try require(raw.count == 3, "fixture exposes an internal auxiliary window alongside two real windows")
                 let windows = service.controller.windows(of: app)
                 try require(windows.count == 2, "two real windows are exposed through Accessibility")
+                try require(windows.contains { (AX.value($0.element, kAXTitleAttribute) as String?) == "" },
+                            "a real untitled standard window remains available")
                 move(to: center(windows[0].frame))
                 click(at: center(windows[0].frame))
-                let madeFrontmost = AX.set(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute, true)
+                let madeFrontmost = service.controller.reveal(windows[0], app: app)
                 await pause(0.5)
                 let axFrontmost: Bool = AX.value(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute) ?? false
                 print("DIAGNOSTIC: activationAccepted=\(madeFrontmost), accessibleFrontmost=\(axFrontmost), workspaceFrontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier)")
@@ -142,14 +155,37 @@ final class NativeIntegrationCheck {
                     _ = try await hover(app)
                 }
 
+                if let previousApp, previousApp.processIdentifier != app.processIdentifier,
+                   previousApp.processIdentifier != getpid() {
+                    _ = AX.set(AXUIElementCreateApplication(previousApp.processIdentifier), kAXFrontmostAttribute, true)
+                    previousApp.activate(options: [])
+                    await pause(0.5)
+                    try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == previousApp.processIdentifier,
+                                "another application is foreground before preview selection")
+                    _ = try await hover(app)
+                }
+
                 guard let target = service.preview.windowKeys.dropFirst().first else { throw failure("preview closed before selection") }
+                var selectedKey: WindowKey?
+                let originalSelection = service.preview.onSelect
+                service.preview.onSelect = { window, selectedApp in
+                    selectedKey = window.key
+                    originalSelection?(window, selectedApp)
+                }
                 let panel = service.preview.panel.frame
                 let clickInPanel = CGPoint(x: panel.minX + 12 + 244 + 117, y: panel.minY + 100)
                 click(at: quartzPoint(clickInPanel))
                 await pause(0.5)
                 let owner = AXUIElementCreateApplication(app.processIdentifier)
                 let focused: AXUIElement? = AX.value(owner, kAXFocusedWindowAttribute)
+                try require(selectedKey == target, "the clicked preview selects its displayed window")
                 try require(focused.map { Int(CFHash($0)) } == target.id, "clicking a preview focuses its exact window")
+                var stayedFrontmost = true
+                for _ in 0..<10 {
+                    stayedFrontmost = stayedFrontmost && NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+                    await pause(0.1)
+                }
+                try require(stayedFrontmost, "selected application stays foreground after preview dismissal")
 
                 try await dockClick(app)
                 await pause(0.7)
@@ -178,6 +214,37 @@ final class NativeIntegrationCheck {
                 let afterKeyboard = service.controller.windows(of: app)
                 try require(afterKeyboard.count == 2 && afterKeyboard.allSatisfy(\.state.minimized),
                             "keyboard activity makes the next Dock click target the current window, not restore the previous one")
+                if let previousApp, previousApp.processIdentifier != app.processIdentifier,
+                   let restoring = afterKeyboard.first {
+                    _ = AX.set(AXUIElementCreateApplication(previousApp.processIdentifier), kAXFrontmostAttribute, true)
+                    previousApp.activate(options: [])
+                    await pause(0.5)
+                    try require(service.controller.reveal(restoring, app: app), "minimized-window restoration is accepted")
+                    service.controller.userChangedWindow()
+                    await pause(1.5)
+                    try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == previousApp.processIdentifier,
+                                "new user activity cancels deferred foreground activation")
+                    if service.locator.item(for: previousApp) != nil {
+                        let original = service.controller.windows(of: previousApp)
+                        _ = AX.set(restoring.element, kAXMinimizedAttribute, true)
+                        await pause(0.6)
+                        try require(service.controller.reveal(restoring, app: app), "another minimized restore is accepted before a new Dock press")
+                        guard let current = service.locator.item(for: previousApp) else { throw failure("source Dock icon disappeared") }
+                        let point = center(current.frame)
+                        let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)!
+                        let intercepted = service.handle(type: .leftMouseDown, event: down) == nil
+                        await pause(1.5)
+                        let keptForeground = NSWorkspace.shared.frontmostApplication?.processIdentifier == previousApp.processIdentifier
+                        let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left)!
+                        _ = service.handle(type: .leftMouseUp, event: up)
+                        await pause(0.6)
+                        for window in original where !window.state.minimized {
+                            _ = service.controller.reveal(window, app: previousApp)
+                        }
+                        await pause(1.5)
+                        try require(intercepted && keptForeground, "a held intercepted Dock press cancels earlier deferred activation immediately")
+                    }
+                }
                 print("PASS: native integration checks complete; preview image: /tmp/dock-enhanced-preview.png")
             } catch {
                 print("FAIL: \(error.localizedDescription)")
@@ -262,6 +329,7 @@ final class NativeIntegrationCheck {
         CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
     }
     private func click(at point: CGPoint) {
+        move(to: point)
         for type: CGEventType in [.leftMouseDown, .leftMouseUp] {
             let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
             event?.flags = []
