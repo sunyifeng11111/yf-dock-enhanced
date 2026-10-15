@@ -9,10 +9,11 @@ func quartzPoint(_ appKitPoint: CGPoint) -> CGPoint {
 }
 
 final class PreviewCard: NSButton {
-    let snapshot: AppWindow
+    private(set) var snapshot: AppWindow
     private let thumbnail = NSImageView()
+    private let name = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
-    var selected: (() -> Void)?
+    var selected: ((AppWindow) -> Void)?
 
     init(window: AppWindow, frame: CGRect) {
         self.snapshot = window
@@ -25,7 +26,7 @@ final class PreviewCard: NSButton {
         thumbnail.frame = CGRect(x: 8, y: 32, width: frame.width - 16, height: 126)
         thumbnail.imageScaling = .scaleProportionallyUpOrDown
         addSubview(thumbnail)
-        let name = NSTextField(labelWithString: window.title)
+        name.stringValue = window.title
         name.frame = CGRect(x: 10, y: 8, width: frame.width - 20, height: 18)
         name.font = .systemFont(ofSize: 12, weight: .medium)
         name.lineBreakMode = .byTruncatingTail
@@ -48,9 +49,17 @@ final class PreviewCard: NSButton {
     func update(image: NSImage?, icon: NSImage?) {
         thumbnail.image = image ?? icon
         detail.stringValue = snapshot.state.minimized ? (image == nil ? "已最小化 · 点击恢复" : "已最小化 · 缓存画面") : (image == nil ? "点击切换窗口" : "点击切换")
+        setAccessibilityHelp(detail.stringValue)
     }
 
-    @objc private func selectWindow() { selected?() }
+    func update(snapshot: AppWindow, image: NSImage?, icon: NSImage?) {
+        self.snapshot = snapshot
+        name.stringValue = snapshot.title
+        setAccessibilityLabel(snapshot.title)
+        update(image: image, icon: icon)
+    }
+
+    @objc private func selectWindow() { selected?(snapshot) }
 }
 
 final class PreviewPanel {
@@ -112,8 +121,8 @@ final class PreviewPanel {
         let document = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(windows.count) * 244, height: 180))
         cards = windows.enumerated().map { index, window in
             let card = PreviewCard(window: window, frame: CGRect(x: CGFloat(index) * 244, y: 0, width: 234, height: 180))
-            card.selected = { [weak self] in
-                self?.onSelect?(window, item.app)
+            card.selected = { [weak self] selectedWindow in
+                self?.onSelect?(selectedWindow, item.app)
                 self?.hide()
             }
             card.update(image: images.cache[window.key], icon: item.app.icon)
@@ -128,6 +137,14 @@ final class PreviewPanel {
 
     func updateImages(_ images: PreviewImages) {
         for card in cards { card.update(image: images.cache[card.snapshot.key], icon: app?.icon) }
+    }
+
+    func updateWindows(_ windows: [AppWindow], images: PreviewImages) {
+        let current = Dictionary(uniqueKeysWithValues: windows.map { ($0.key, $0) })
+        for card in cards {
+            guard let snapshot = current[card.snapshot.key] else { continue }
+            card.update(snapshot: snapshot, image: images.cache[snapshot.key], icon: app?.icon)
+        }
     }
 
     func containsPointer(_ point: CGPoint) -> Bool {

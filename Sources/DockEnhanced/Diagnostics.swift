@@ -69,18 +69,19 @@ final class NativeIntegrationCheck {
                 _ = AX.set(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute, true)
                 await pause(0.5)
                 try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier, "fixture is foreground before hovering")
-                guard let initialItem = service.locator.item(for: app) else { throw failure("fixture Dock icon not found") }
-                move(to: center(initialItem.frame))
-                await pause(1.5)
-                guard let item = service.locator.item(for: app) else { throw failure("Dock icon disappeared") }
-                let point = center(item.frame)
-                move(to: point)
-                await pause(1)
+                let point = try await hover(app)
                 try require(service.locator.item(at: point)?.app.processIdentifier == app.processIdentifier, "Dock icon belongs to the fixture instance")
                 try require(service.preview.isVisible && service.preview.windowKeys.count == 2, "hover shows both window previews")
                 try require(windows.allSatisfy { service.images.cache[$0.key] != nil }, "both thumbnails contain captured window images")
                 try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier, "hover does not steal keyboard focus")
                 try await savePreview()
+
+                move(to: quartzPoint(center(service.preview.panel.frame)))
+                _ = AX.set(windows[0].element, kAXMinimizedAttribute, true)
+                await pause(1.3)
+                try require(previewText().contains("已最小化"), "a window state change updates an already visible preview hint")
+                _ = AX.set(windows[0].element, kAXMinimizedAttribute, false)
+                await pause(1.1)
 
                 let target = service.preview.windowKeys[1]
                 let panel = service.preview.panel.frame
@@ -91,20 +92,31 @@ final class NativeIntegrationCheck {
                 let focused: AXUIElement? = AX.value(owner, kAXFocusedWindowAttribute)
                 try require(focused.map { Int(CFHash($0)) } == target.id, "clicking a preview focuses its exact window")
 
-                move(to: point)
-                await pause(0.5)
-                click(at: point)
+                try await dockClick(app)
                 await pause(0.7)
                 let minimized = service.controller.windows(of: app)
                 try require(minimized.filter(\.state.minimized).map(\.key) == [target], "Dock click minimizes only the selected recent window")
+                _ = try await hover(app)
                 try require(service.preview.isVisible && service.preview.windowKeys.contains(target) && service.images.cache[target] != nil,
                             "minimized window remains selectable with its cached preview")
-                move(to: point)
-                await pause(0.5)
-                click(at: point)
+                try await dockClick(app)
                 await pause(0.7)
                 let restored = service.controller.windows(of: app)
                 try require(restored.count == 2 && restored.allSatisfy { !$0.state.minimized }, "next Dock click restores the same window")
+
+                try await dockClick(app)
+                await pause(0.5)
+                for isDown in [true, false] {
+                    let keyboard = CGEvent(keyboardEventSource: nil, virtualKey: 124, keyDown: isDown)
+                    keyboard?.flags = []
+                    keyboard?.post(tap: .cghidEventTap)
+                }
+                await pause(0.2)
+                try await dockClick(app)
+                await pause(0.5)
+                let afterKeyboard = service.controller.windows(of: app)
+                try require(afterKeyboard.count == 2 && afterKeyboard.allSatisfy(\.state.minimized),
+                            "keyboard activity makes the next Dock click target the current window, not restore the previous one")
                 print("PASS: native integration checks complete; preview image: /tmp/dock-enhanced-preview.png")
             } catch {
                 print("FAIL: \(error.localizedDescription)")
@@ -112,7 +124,10 @@ final class NativeIntegrationCheck {
             }
             service.stop()
             fixture?.terminate()
-            previousApp?.activate(options: [])
+            if let previousApp {
+                _ = AX.set(AXUIElementCreateApplication(previousApp.processIdentifier), kAXFrontmostAttribute, true)
+                previousApp.activate(options: [])
+            }
             move(to: previousPointer)
             exit(result)
         }
@@ -130,9 +145,43 @@ final class NativeIntegrationCheck {
         try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/dock-enhanced-preview.png"))
     }
 
+    @MainActor private func previewText() -> String {
+        var queue: [Any] = [service.preview.panel]
+        var text = ""
+        for _ in 0..<250 {
+            guard !queue.isEmpty else { break }
+            let node = queue.removeFirst()
+            guard let accessible = node as? NSAccessibilityProtocol else { continue }
+            text += accessible.accessibilityValue() as? String ?? ""
+            text += accessible.accessibilityHelp() ?? ""
+            queue.append(contentsOf: accessible.accessibilityChildren() ?? [])
+        }
+        return text
+    }
+
     private func require(_ condition: Bool, _ text: String) throws {
         guard condition else { throw failure(text) }
         print("PASS: \(text)")
+    }
+    private func dockClick(_ app: NSRunningApplication) async throws {
+        guard let item = service.locator.item(for: app) else { throw failure("fixture Dock icon not found") }
+        move(to: center(item.frame))
+        await pause(0.4)
+        guard let current = service.locator.item(for: app) else { throw failure("fixture Dock icon disappeared") }
+        let point = center(current.frame)
+        move(to: point)
+        click(at: point)
+    }
+    private func hover(_ app: NSRunningApplication) async throws -> CGPoint {
+        var point = CGPoint.zero
+        for _ in 0..<10 {
+            guard let item = service.locator.item(for: app) else { throw failure("fixture Dock icon not found") }
+            point = center(item.frame)
+            move(to: point)
+            await pause(0.5)
+            if service.preview.isVisible && service.preview.windowKeys.count == 2 { break }
+        }
+        return point
     }
     private func failure(_ text: String) -> NSError { NSError(domain: "DockIntegration", code: 1, userInfo: [NSLocalizedDescriptionKey: text]) }
     private func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }

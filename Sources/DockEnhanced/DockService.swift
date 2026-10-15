@@ -42,7 +42,7 @@ final class DockService {
     func start() -> Bool {
         guard !running else { return true }
         guard AXIsProcessTrusted() else { return false }
-        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown]
+        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .keyDown]
         let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
         guard let newTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                             options: .defaultTap, eventsOfInterest: mask,
@@ -85,6 +85,12 @@ final class DockService {
             return Unmanaged.passUnretained(event)
         }
         if event.getIntegerValueField(.eventSourceUserData) == replayMarker { return Unmanaged.passUnretained(event) }
+        if type == .keyDown {
+            // Observe activity only; never inspect key codes or characters. Working in a
+            // different window ends the consecutive Dock-click restore interaction.
+            controller.userChangedWindow()
+            return Unmanaged.passUnretained(event)
+        }
         if type == .leftMouseDragged, let pending {
             if hypot(event.location.x - pending.down.location.x, event.location.y - pending.down.location.y) > 5 {
                 // Recreate the original press before the drag, preserving Dock icon reordering.
@@ -131,6 +137,7 @@ final class DockService {
             controller.userChangedWindow()
             return Unmanaged.passUnretained(event)
         }
+        controller.refreshFocusedWindow(of: item.app)
         let action = controller.action(for: item.app, windows: windows)
         guard action != .native, let down = event.copy() else {
             controller.userChangedWindow()
@@ -181,9 +188,8 @@ final class DockService {
                 images.refresh(windows)
             }
             if now.timeIntervalSince(hoverStarted) > 0.30,
-               let windows = prepared[item.app.processIdentifier], !windows.isEmpty,
-               !preview.isVisible || preview.windowKeys != windows.map(\.key) {
-                preview.show(item: item, windows: windows, images: images)
+               let windows = prepared[item.app.processIdentifier] {
+                refreshPreview(item: item, windows: windows)
             }
         } else if preview.containsPointer(pointer) {
             lastInside = now
@@ -195,7 +201,17 @@ final class DockService {
             lastCapture = now
             let windows = controller.windows(of: app)
             prepared[app.processIdentifier] = windows
+            if let item = hovered { refreshPreview(item: item, windows: windows) }
             images.refresh(windows)
+        }
+    }
+
+    private func refreshPreview(item: DockItem, windows: [AppWindow]) {
+        if windows.isEmpty { preview.hide() }
+        else if !preview.isVisible || preview.windowKeys != windows.map(\.key) {
+            preview.show(item: item, windows: windows, images: images)
+        } else {
+            preview.updateWindows(windows, images: images)
         }
     }
 }

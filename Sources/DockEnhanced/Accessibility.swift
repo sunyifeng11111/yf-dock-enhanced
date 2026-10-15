@@ -75,7 +75,10 @@ final class DockLocator {
         for _ in 0..<200 {
             guard !queue.isEmpty else { break }
             let node = queue.removeFirst()
-            if let url: URL = AX.value(node, kAXURLAttribute),
+            let role: String? = AX.value(node, kAXRoleAttribute)
+            let subrole: String = AX.value(node, kAXSubroleAttribute) ?? ""
+            if role == "AXDockItem", !subrole.contains("Minimized"),
+               let url: URL = AX.value(node, kAXURLAttribute),
                url.standardizedFileURL == app.bundleURL?.standardizedFileURL,
                let frame = AX.rect(node) { return DockItem(app: app, frame: frame) }
             let children: [AXUIElement] = AX.value(node, kAXChildrenAttribute) ?? []
@@ -124,6 +127,14 @@ final class WindowController {
 
     func recentWindow(of app: NSRunningApplication, in windows: [AppWindow]) -> AppWindow? {
         windows.first(where: { $0.key.id == recent[app.processIdentifier] }) ?? windows.first
+    }
+
+    func refreshFocusedWindow(of app: NSRunningApplication) {
+        let owner = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(owner, 0.04)
+        if let focused: AXUIElement = AX.value(owner, kAXFocusedWindowAttribute) {
+            recent[app.processIdentifier] = Int(CFHash(focused))
+        }
     }
 
     func perform(_ action: DockClickAction, app: NSRunningApplication, windows: [AppWindow]) -> Bool {
