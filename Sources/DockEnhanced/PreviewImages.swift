@@ -36,12 +36,17 @@ final class PreviewImages {
                     guard let capturedWindow = exact.count == 1 ? exact.first :
                             (normalized.count == 1 ? normalized.first : (matches.count == 1 ? matches.first : nil)) else { continue }
                     used.insert(capturedWindow.windowID)
+                    let filter = SCContentFilter(desktopIndependentWindow: capturedWindow)
+                    let size = filter.contentRect.size
+                    guard size.width > 0, size.height > 0 else { continue }
+                    let scale = min(500 / size.width, 400 / size.height)
                     let configuration = SCStreamConfiguration()
-                    configuration.width = 500
-                    configuration.height = max(1, min(400, Int(500 * window.frame.height / window.frame.width)))
+                    // Fit both dimensions together. A fixed width with a capped height
+                    // leaves a padded canvas around portrait windows in ScreenCaptureKit.
+                    configuration.width = max(1, Int((size.width * scale).rounded()))
+                    configuration.height = max(1, Int((size.height * scale).rounded()))
                     configuration.showsCursor = false
                     configuration.ignoreShadowsSingleWindow = true
-                    let filter = SCContentFilter(desktopIndependentWindow: capturedWindow)
                     let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
                     guard self.generation == requestedGeneration else { return }
                     self.cache[window.key] = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))

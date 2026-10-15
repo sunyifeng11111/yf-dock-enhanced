@@ -28,6 +28,7 @@ final class PreviewCard: NSButton {
         layer?.backgroundColor = NSColor.clear.cgColor
         thumbnail.frame = CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
         thumbnail.imageScaling = .scaleProportionallyUpOrDown
+        thumbnail.imageAlignment = .alignCenter
         thumbnail.wantsLayer = true
         thumbnail.layer?.cornerRadius = 6
         thumbnail.layer?.masksToBounds = true
@@ -125,7 +126,11 @@ final class PreviewPanel {
         anchor = CGRect(origin: origin, size: item.frame.size)
         let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) }) ?? NSScreen.main
         let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
-        let width = min(CGFloat(windows.count) * 244 + 24, available.width - 24)
+        let cardWidth: CGFloat = 234
+        let gap: CGFloat = 10
+        let padding: CGFloat = 12
+        let documentWidth = CGFloat(windows.count) * cardWidth + CGFloat(windows.count - 1) * gap
+        let width = min(documentWidth + 2 * padding, available.width - 24)
         let size = CGSize(width: max(180, width), height: 220)
         var position = CGPoint(x: anchor.midX - size.width / 2, y: anchor.maxY + 10)
         let full = screen?.frame ?? available
@@ -143,13 +148,13 @@ final class PreviewPanel {
         header.alignment = .center
         header.frame = CGRect(x: 20, y: 188, width: size.width - 40, height: 20)
         content.addSubview(header)
-        let scroll = NSScrollView(frame: CGRect(x: 12, y: 10, width: size.width - 24, height: 170))
+        let scroll = NSScrollView(frame: CGRect(x: padding, y: 10, width: size.width - 2 * padding, height: 170))
         scroll.drawsBackground = false
-        scroll.hasHorizontalScroller = CGFloat(windows.count) * 244 > scroll.frame.width
+        scroll.hasHorizontalScroller = documentWidth > scroll.frame.width
         scroll.autohidesScrollers = true
-        let document = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(windows.count) * 244, height: 170))
+        let document = NSView(frame: CGRect(x: 0, y: 0, width: documentWidth, height: 170))
         cards = windows.enumerated().map { index, window in
-            let card = PreviewCard(window: window, frame: CGRect(x: CGFloat(index) * 244, y: 0, width: 234, height: 170))
+            let card = PreviewCard(window: window, frame: CGRect(x: CGFloat(index) * (cardWidth + gap), y: 0, width: cardWidth, height: 170))
             card.selected = { [weak self] selectedWindow in
                 self?.onSelect?(selectedWindow, item.app)
                 self?.hide()

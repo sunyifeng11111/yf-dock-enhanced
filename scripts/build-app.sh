@@ -17,8 +17,8 @@ with open(sys.argv[1], 'wb') as f:
         'CFBundleName': 'Dock Enhanced',
         'CFBundleDisplayName': 'Dock Enhanced',
         'CFBundlePackageType': 'APPL',
-        'CFBundleShortVersionString': '0.2.1',
-        'CFBundleVersion': '3',
+        'CFBundleShortVersionString': '0.2.2',
+        'CFBundleVersion': '4',
         'LSMinimumSystemVersion': '14.0',
         'LSUIElement': True,
         'NSHighResolutionCapable': True

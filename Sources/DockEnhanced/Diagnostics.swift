@@ -16,16 +16,18 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item)
         NSApp.mainMenu = menu
         for index in 0..<2 {
-            let window = NSWindow(contentRect: CGRect(x: 220 + index * 70, y: 250 + index * 45, width: 540, height: 360),
+            let size = index == 0 ? CGSize(width: 540, height: 360) : CGSize(width: 240, height: 420)
+            let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: 220 + index * 70, y: 250 + index * 45), size: size),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = index == 0 ? "测试窗口 · 紫色" : "测试窗口 · 绿色"
-            let view = NSView(frame: CGRect(x: 0, y: 0, width: 540, height: 360))
+            let view = NSView(frame: CGRect(origin: .zero, size: size))
             view.wantsLayer = true
             view.layer?.backgroundColor = (index == 0 ? NSColor.systemPurple : NSColor.systemTeal).cgColor
             let label = NSTextField(labelWithString: index == 0 ? "WINDOW A" : "WINDOW B")
-            label.font = .systemFont(ofSize: 42, weight: .bold)
+            label.font = .systemFont(ofSize: index == 0 ? 42 : 28, weight: .bold)
             label.textColor = .white
-            label.frame = CGRect(x: 120, y: 150, width: 330, height: 70)
+            label.alignment = .center
+            label.frame = CGRect(x: 0, y: (size.height - 70) / 2, width: size.width, height: 70)
             view.addSubview(label)
             window.contentView = view
             window.isReleasedWhenClosed = false
@@ -76,6 +78,11 @@ final class NativeIntegrationCheck {
                 try require(service.locator.item(at: point)?.app.processIdentifier == app.processIdentifier, "Dock icon belongs to the fixture instance")
                 try require(service.preview.isVisible && service.preview.windowKeys.count == 2, "hover shows both window previews")
                 try require(windows.allSatisfy { service.images.cache[$0.key] != nil }, "both thumbnails contain captured window images")
+                try require(windows.allSatisfy { window in
+                    guard let image = service.images.cache[window.key] else { return false }
+                    return abs(image.size.width / image.size.height - window.frame.width / window.frame.height) < 0.01
+                }, "wide and portrait thumbnails preserve their window aspect ratios")
+                try checkPreviewMargins(service.preview.panel)
                 try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier, "hover does not steal keyboard focus")
                 if let rightDown = CGEvent(mouseEventSource: nil, mouseType: .rightMouseDown, mouseCursorPosition: point, mouseButton: .right) {
                     _ = service.handle(type: .rightMouseDown, event: rightDown)
@@ -121,7 +128,19 @@ final class NativeIntegrationCheck {
                 let previewFrame = service.preview.panel.frame
                 move(to: quartzPoint(CGPoint(x: previewFrame.minX + 12 + 244 + 117, y: previewFrame.minY + 100)))
                 await pause(0.25)
-                try await savePreview()
+                try await savePreview(service.preview.panel, path: "/tmp/dock-enhanced-preview.png")
+                if let portrait = windows.first(where: { $0.frame.height > $0.frame.width }),
+                   let item = service.locator.item(for: app) {
+                    service.preview.hide(animated: false)
+                    let single = PreviewPanel()
+                    single.show(item: item, windows: [portrait], images: service.images)
+                    try checkPreviewMargins(single.panel)
+                    move(to: quartzPoint(CGPoint(x: single.panel.frame.midX, y: single.panel.frame.midY)))
+                    await pause(0.3)
+                    try await savePreview(single.panel, path: "/tmp/dock-enhanced-portrait-preview.png")
+                    single.hide(animated: false)
+                    _ = try await hover(app)
+                }
 
                 guard let target = service.preview.windowKeys.dropFirst().first else { throw failure("preview closed before selection") }
                 let panel = service.preview.panel.frame
@@ -175,9 +194,9 @@ final class NativeIntegrationCheck {
         }
     }
 
-    @MainActor private func savePreview() async throws {
+    @MainActor private func savePreview(_ panel: NSPanel, path: String) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-        let panelFrame = service.preview.panel.frame
+        let panelFrame = panel.frame
         let captureFrame = CGRect(origin: quartzPoint(CGPoint(x: panelFrame.minX, y: panelFrame.maxY)), size: panelFrame.size)
         guard let display = content.displays.first(where: { $0.frame.contains(CGPoint(x: captureFrame.midX, y: captureFrame.midY)) }) else { return }
         let config = SCStreamConfiguration()
@@ -189,7 +208,20 @@ final class NativeIntegrationCheck {
         // composited backdrop; isolated-window captures flatten the glass to gray.
         let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: display, excludingWindows: []), configuration: config)
         let bitmap = NSBitmapImageRep(cgImage: image)
-        try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/dock-enhanced-preview.png"))
+        try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+    }
+
+    private func checkPreviewMargins(_ panel: NSPanel) throws {
+        guard let content = panel.contentView else { throw failure("missing preview content") }
+        func cards(in view: NSView) -> [PreviewCard] {
+            view.subviews.flatMap { child in
+                if let card = child as? PreviewCard { return [card] }
+                return cards(in: child)
+            }
+        }
+        let frames = cards(in: content).map { $0.convert($0.bounds, to: content) }
+        guard let left = frames.map(\.minX).min(), let right = frames.map(\.maxX).max() else { throw failure("missing preview cards") }
+        try require(abs(left - (content.bounds.width - right)) < 0.5, "preview cards have equal left and right outer margins (\(frames.count) windows)")
     }
 
     private func require(_ condition: Bool, _ text: String) throws {
