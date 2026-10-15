@@ -1,0 +1,11 @@
+# Triage Labels
+
+| Canonical role | Local status | Meaning |
+| --- | --- | --- |
+| needs-triage | needs-triage | Maintainer needs to evaluate the issue |
+| needs-info | needs-info | Waiting on reporter for more information |
+| ready-for-agent | ready-for-agent | Fully specified and ready for implementation |
+| ready-for-human | ready-for-human | Requires human implementation |
+| wontfix | wontfix | Will not be actioned |
+
+Use the local status corresponding to the role requested by a skill.
