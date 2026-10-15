@@ -29,7 +29,12 @@ final class PreviewImages {
                         abs($0.frame.width - window.frame.width) < 8 && abs($0.frame.height - window.frame.height) < 8
                     }
                     let exact = matches.filter { $0.title == window.title }
-                    guard let capturedWindow = exact.count == 1 ? exact.first : (matches.count == 1 ? matches.first : nil) else { continue }
+                    let appName = NSRunningApplication(processIdentifier: window.key.pid)?.localizedName ?? ""
+                    let normalized = matches.filter {
+                        !($0.title ?? "").isEmpty && normalizedTitle($0.title ?? "", appName: appName) == normalizedTitle(window.title, appName: appName)
+                    }
+                    guard let capturedWindow = exact.count == 1 ? exact.first :
+                            (normalized.count == 1 ? normalized.first : (matches.count == 1 ? matches.first : nil)) else { continue }
                     used.insert(capturedWindow.windowID)
                     let configuration = SCStreamConfiguration()
                     configuration.width = 500
@@ -54,4 +59,15 @@ final class PreviewImages {
     }
 
     func clear() { generation += 1; cache.removeAll(); order.removeAll() }
+
+    private func normalizedTitle(_ title: String, appName: String) -> String {
+        var title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        for name in Set([appName, "Google Chrome", "Chrome", "Chromium"]) where !name.isEmpty {
+            for separator in [" - ", " — ", " – "] {
+                let suffix = separator + name
+                if title.hasSuffix(suffix) { title = String(title.dropLast(suffix.count)) }
+            }
+        }
+        return title.precomposedStringWithCanonicalMapping
+    }
 }

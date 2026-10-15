@@ -77,6 +77,21 @@ final class NativeIntegrationCheck {
                 try require(service.preview.isVisible && service.preview.windowKeys.count == 2, "hover shows both window previews")
                 try require(windows.allSatisfy { service.images.cache[$0.key] != nil }, "both thumbnails contain captured window images")
                 try require(NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier, "hover does not steal keyboard focus")
+                if let rightDown = CGEvent(mouseEventSource: nil, mouseType: .rightMouseDown, mouseCursorPosition: point, mouseButton: .right) {
+                    _ = service.handle(type: .rightMouseDown, event: rightDown)
+                    try require(!service.preview.isVisible, "right click hides a visible preview immediately")
+                    await pause(1)
+                    try require(!service.preview.isVisible, "holding right mouse button does not reopen the preview")
+                    if let rightUp = CGEvent(mouseEventSource: nil, mouseType: .rightMouseUp, mouseCursorPosition: point, mouseButton: .right) {
+                        _ = service.handle(type: .rightMouseUp, event: rightUp)
+                    }
+                    await pause(1)
+                    try require(!service.preview.isVisible, "released right click stays suppressed until the pointer leaves the icon")
+                    _ = try await hover(app)
+                }
+                let previewFrame = service.preview.panel.frame
+                move(to: quartzPoint(CGPoint(x: previewFrame.minX + 12 + 244 + 117, y: previewFrame.minY + 100)))
+                await pause(0.25)
                 try await savePreview()
 
                 guard let target = service.preview.windowKeys.dropFirst().first else { throw failure("preview closed before selection") }
@@ -92,6 +107,8 @@ final class NativeIntegrationCheck {
                 await pause(0.7)
                 let minimized = service.controller.windows(of: app)
                 try require(minimized.filter(\.state.minimized).map(\.key) == [target], "Dock click minimizes only the selected recent window")
+                await pause(1)
+                try require(!service.preview.isVisible, "minimize click does not reopen the preview while the pointer remains on the icon")
                 _ = try await hover(app)
                 try require(service.preview.isVisible && service.preview.windowKeys.contains(target) && service.images.cache[target] != nil,
                             "minimized window remains selectable with its cached preview")
@@ -156,6 +173,10 @@ final class NativeIntegrationCheck {
         click(at: point)
     }
     private func hover(_ app: NSRunningApplication) async throws -> CGPoint {
+        if let window = service.controller.windows(of: app).first {
+            move(to: center(window.frame))
+            await pause(0.4)
+        }
         var point = CGPoint.zero
         for _ in 0..<10 {
             guard let item = service.locator.item(for: app) else { throw failure("fixture Dock icon not found") }

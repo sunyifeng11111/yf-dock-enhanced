@@ -7,7 +7,10 @@ if CommandLine.arguments.contains("--diagnose") {
     exit(0)
 }
 let application = NSApplication.shared
-let delegate: NSApplicationDelegate = CommandLine.arguments.contains("--fixture") ? FixtureDelegate() : AppDelegate()
+let delegate: NSApplicationDelegate
+if CommandLine.arguments.contains("--check-chrome-preview") { delegate = ChromePreviewCheck() }
+else if CommandLine.arguments.contains("--fixture") { delegate = FixtureDelegate() }
+else { delegate = AppDelegate() }
 #else
 let application = NSApplication.shared
 let delegate = AppDelegate()

@@ -19,18 +19,21 @@ final class DockService {
     private var source: CFRunLoopSource?
     private var timer: Timer?
     private var hovered: DockItem?
-    private var hoverStarted = Date.distantPast
     private var lastInside = Date.distantPast
     private var lastRefresh = Date.distantPast
     private var lastCapture = Date.distantPast
     private var prepared: [pid_t: [AppWindow]] = [:]
     private var pending: (down: CGEvent, item: DockItem, windows: [AppWindow], action: DockClickAction)?
+    private var hoverPolicy = PreviewHoverPolicy()
+    private var contextMenuInteraction = false
+    private var contextMenuStarted = Date.distantPast
 
     init() {
         preview.onSelect = { [weak self] window, app in
             self?.controller.reveal(window, app: app)
             self?.hovered = nil
-            self?.hoverStarted = .distantFuture
+            self?.hoverPolicy.beginInteraction(appID: app.processIdentifier)
+            self?.hoverPolicy.endInteraction()
         }
         images.onUpdate = { [weak self] in
             guard let self else { return }
@@ -42,7 +45,7 @@ final class DockService {
     func start() -> Bool {
         guard !running else { return true }
         guard AXIsProcessTrusted() else { return false }
-        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .keyDown]
+        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp, .keyDown]
         let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
         guard let newTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                             options: .defaultTap, eventsOfInterest: mask,
@@ -70,6 +73,8 @@ final class DockService {
         source = nil
         tap = nil
         running = false
+        hoverPolicy = PreviewHoverPolicy()
+        contextMenuInteraction = false
         hovered = nil
         prepared.removeAll()
         preview.hide()
@@ -85,10 +90,25 @@ final class DockService {
             return Unmanaged.passUnretained(event)
         }
         if event.getIntegerValueField(.eventSourceUserData) == replayMarker { return Unmanaged.passUnretained(event) }
+        if type == .leftMouseUp || type == .rightMouseUp { hoverPolicy.endInteraction() }
+        if type == .leftMouseDown || type == .rightMouseDown {
+            let item = locator.item(at: event.location)
+            if let item {
+                hoverPolicy.beginInteraction(appID: item.app.processIdentifier)
+                preview.hide(animated: false)
+                contextMenuInteraction = type == .rightMouseDown
+                contextMenuStarted = Date()
+            } else if !(preview.isVisible && preview.panel.frame.contains(appKitPoint(event.location))) {
+                hoverPolicy.beginInteraction(appID: hovered?.app.processIdentifier)
+                preview.hide(animated: false)
+                contextMenuInteraction = false
+            }
+        }
         if type == .keyDown {
             // Observe activity only; never inspect key codes or characters. Working in a
             // different window ends the consecutive Dock-click restore interaction.
             controller.userChangedWindow()
+            contextMenuInteraction = false
             return Unmanaged.passUnretained(event)
         }
         if type == .leftMouseDragged, let pending {
@@ -177,25 +197,32 @@ final class DockService {
             }
         }
         let pointer = quartzPoint(NSEvent.mouseLocation)
+        if contextMenuInteraction && now.timeIntervalSince(contextMenuStarted) > 0.4 && !locator.hasOpenMenu() {
+            contextMenuInteraction = false
+        }
         if let item = locator.item(at: pointer) {
+            hoverPolicy.hover(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate)
             lastInside = now
             if item.app.processIdentifier != hovered?.app.processIdentifier {
                 hovered = item
-                hoverStarted = now
                 preview.hide()
                 let windows = controller.windows(of: item.app)
                 prepared[item.app.processIdentifier] = windows
                 images.refresh(windows)
             }
-            if now.timeIntervalSince(hoverStarted) > 0.30,
+            if hoverPolicy.allowsPreview(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate,
+                                         delay: PreviewPreferences.hoverDelay, menuOpen: contextMenuInteraction),
                let windows = prepared[item.app.processIdentifier] {
                 refreshPreview(item: item, windows: windows)
             }
         } else if preview.containsPointer(pointer) {
             lastInside = now
-        } else if now.timeIntervalSince(lastInside) > 0.25 {
-            hovered = nil
-            preview.hide()
+        } else {
+            hoverPolicy.leaveIcon()
+            if now.timeIntervalSince(lastInside) > 0.25 {
+                hovered = nil
+                preview.hide()
+            }
         }
         if preview.isVisible, now.timeIntervalSince(lastCapture) > 1, let app = preview.app {
             lastCapture = now

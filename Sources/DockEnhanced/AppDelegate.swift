@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import ApplicationServices
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -7,13 +8,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var stateItem: NSMenuItem!
     private var toggleItem: NSMenuItem!
     private var helpWindow: NSWindow?
-    private var accessLabel: NSTextField?
-    private var captureLabel: NSTextField?
+    let preferences = SettingsModel()
     private var permissionTimer: Timer?
-    private var wantsEnabled = UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true
+    private var wantsEnabled: Bool { preferences.enabled }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        preferences.onEnabledChange = { [weak self] enabled in
+            guard let self else { return }
+            if enabled { self.refreshPermissions() } else { self.service.stop(); self.updateStatus() }
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: "Dock Enhanced")
         let menu = NSMenu()
@@ -22,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toggleItem = NSMenuItem(title: "启用", action: #selector(toggle), keyEquivalent: "")
         toggleItem.target = self
         menu.addItem(toggleItem)
-        let help = NSMenuItem(title: "权限与帮助…", action: #selector(showHelp), keyEquivalent: "")
+        let help = NSMenuItem(title: "设置…", action: #selector(showHelp), keyEquivalent: "")
         help.target = self
         menu.addItem(help)
         menu.addItem(.separator())
@@ -51,55 +55,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshPermissions() {
         if wantsEnabled && AXIsProcessTrusted() && !service.running { service.start() }
-        accessLabel?.stringValue = AXIsProcessTrusted() ? "辅助功能：已授权" : "辅助功能：未授权（用于操作窗口）"
-        captureLabel?.stringValue = CGPreflightScreenCaptureAccess() ? "屏幕录制：已授权" : "屏幕录制：未授权（用于窗口缩略图）"
+        preferences.accessibilityGranted = AXIsProcessTrusted()
+        preferences.captureGranted = CGPreflightScreenCaptureAccess()
         updateStatus()
     }
 
     private func updateStatus() {
         stateItem?.title = service.running ? "Dock Enhanced · 正在运行" : (wantsEnabled ? "Dock Enhanced · 等待权限" : "Dock Enhanced · 已暂停")
         toggleItem?.state = wantsEnabled ? .on : .off
+        preferences.running = service.running
     }
 
-    @objc private func toggle() {
-        wantsEnabled.toggle()
-        UserDefaults.standard.set(wantsEnabled, forKey: "enabled")
-        if wantsEnabled { refreshPermissions() } else { service.stop(); updateStatus() }
-    }
+    @objc private func toggle() { preferences.enabled.toggle() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc func showHelp() {
         if let helpWindow { helpWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); refreshPermissions(); return }
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 490, height: 350),
-                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Dock Enhanced"
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 624, height: 640),
+                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.title = "Dock Enhanced · 设置"
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()
-        let content = NSView(frame: CGRect(x: 0, y: 0, width: 490, height: 350))
-        func label(_ text: String, y: CGFloat, height: CGFloat = 20, size: CGFloat = 13) -> NSTextField {
-            let field = NSTextField(wrappingLabelWithString: text)
-            field.font = .systemFont(ofSize: size)
-            field.frame = CGRect(x: 28, y: y, width: 434, height: height)
-            content.addSubview(field)
-            return field
-        }
-        let title = label("让 Dock 更顺手", y: 288, height: 32, size: 24)
-        title.font = .systemFont(ofSize: 24, weight: .semibold)
-        _ = label("点击图标收起或恢复窗口，悬停预览，点击缩略图切换。", y: 247, height: 38)
-        accessLabel = label("", y: 214)
-        captureLabel = label("", y: 148)
-        func button(_ title: String, y: CGFloat, action: Selector) {
-            let button = NSButton(title: title, target: self, action: action)
-            button.bezelStyle = .rounded
-            button.frame = CGRect(x: 26, y: y, width: 190, height: 30)
-            content.addSubview(button)
-        }
-        button("授权辅助功能", y: 177, action: #selector(requestAccessibility))
-        button("授权屏幕录制", y: 111, action: #selector(requestCapture))
-        let note = label("最小化的窗口显示缓存画面；没有缓存时显示图标与标题。\n授权后若缩略图仍不可用，请退出并重新打开应用。", y: 36, height: 52, size: 11)
-        note.textColor = .secondaryLabelColor
-        window.contentView = content
+        window.contentView = NSHostingView(rootView: SettingsView(model: preferences,
+            requestAccessibility: { [weak self] in self?.requestAccessibility() },
+            requestCapture: { [weak self] in self?.requestCapture() }))
         helpWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

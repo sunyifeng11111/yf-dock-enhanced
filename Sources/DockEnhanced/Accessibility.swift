@@ -47,6 +47,19 @@ final class DockLocator {
 
     init() { AXUIElementSetMessagingTimeout(system, 0.04) }
 
+    func hasOpenMenu() -> Bool {
+        guard let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.dock" }) else { return false }
+        let dock = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(dock, 0.03)
+        let focused: AXUIElement? = AX.value(dock, kAXFocusedUIElementAttribute)
+        if let focused {
+            let role: String = AX.value(focused, kAXRoleAttribute) ?? ""
+            if role == kAXMenuRole || role == kAXMenuItemRole { return true }
+        }
+        let children: [AXUIElement] = AX.value(dock, kAXChildrenAttribute) ?? []
+        return children.contains { (AX.value($0, kAXRoleAttribute) as String?) == kAXMenuRole }
+    }
+
     func item(at point: CGPoint) -> DockItem? {
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit) == .success else { return nil }

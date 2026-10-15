@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 func appKitPoint(_ quartzPoint: CGPoint) -> CGPoint {
     CGPoint(x: quartzPoint.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - quartzPoint.y)
@@ -14,6 +15,8 @@ final class PreviewCard: NSButton {
     private let name = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
     var selected: ((AppWindow) -> Void)?
+    private var hoverTracking: NSTrackingArea?
+    private var highlightedByPointer = false
 
     init(window: AppWindow, frame: CGRect) {
         self.snapshot = window
@@ -23,8 +26,13 @@ final class PreviewCard: NSButton {
         wantsLayer = true
         layer?.cornerRadius = 10
         layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.65).cgColor
+        layer?.borderWidth = 1.5
+        layer?.borderColor = NSColor.clear.cgColor
         thumbnail.frame = CGRect(x: 8, y: 32, width: frame.width - 16, height: 126)
         thumbnail.imageScaling = .scaleProportionallyUpOrDown
+        thumbnail.wantsLayer = true
+        thumbnail.layer?.cornerRadius = 6
+        thumbnail.layer?.masksToBounds = true
         addSubview(thumbnail)
         name.stringValue = window.title
         name.frame = CGRect(x: 10, y: 8, width: frame.width - 20, height: 18)
@@ -41,6 +49,30 @@ final class PreviewCard: NSButton {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let tracking = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(tracking)
+        hoverTracking = tracking
+    }
+
+    override func mouseEntered(with event: NSEvent) { highlightedByPointer = true; updateHighlight() }
+    override func mouseExited(with event: NSEvent) { highlightedByPointer = false; updateHighlight() }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateHighlight() }
+
+    private func updateHighlight() {
+        guard let layer else { return }
+        let color = highlightedByPointer ? NSColor.systemIndigo.withAlphaComponent(0.14) : NSColor.controlBackgroundColor.withAlphaComponent(0.65)
+        let animation = CABasicAnimation(keyPath: "backgroundColor")
+        animation.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        animation.toValue = color.cgColor
+        animation.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
+        layer.add(animation, forKey: "pointerHighlight")
+        layer.backgroundColor = color.cgColor
+        layer.borderColor = highlightedByPointer ? NSColor.systemIndigo.withAlphaComponent(0.65).cgColor : NSColor.clear.cgColor
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(convert(point, from: superview)) ? self : nil
@@ -68,6 +100,8 @@ final class PreviewPanel {
     private(set) var app: NSRunningApplication?
     private(set) var windowKeys: [WindowKey] = []
     private var anchor = CGRect.zero
+    private var presented = false
+    private var transitionGeneration = 0
     var onSelect: ((AppWindow, NSRunningApplication) -> Void)?
 
     init() {
@@ -81,10 +115,13 @@ final class PreviewPanel {
         panel.setAccessibilityTitle("Dock 窗口预览")
     }
 
-    var isVisible: Bool { panel.isVisible }
+    var isVisible: Bool { presented }
 
     func show(item: DockItem, windows: [AppWindow], images: PreviewImages) {
         guard !windows.isEmpty else { hide(); return }
+        let wasPresented = presented
+        transitionGeneration += 1
+        presented = true
         app = item.app
         windowKeys = windows.map(\.key)
         let origin = appKitPoint(CGPoint(x: item.frame.minX, y: item.frame.maxY))
@@ -132,7 +169,20 @@ final class PreviewPanel {
         scroll.documentView = document
         background.addSubview(scroll)
         panel.contentView = background
+        let finalFrame = panel.frame
+        if !wasPresented {
+            panel.alphaValue = 0
+            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                panel.setFrame(finalFrame.offsetBy(dx: 0, dy: -6), display: false)
+            }
+        }
         panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(finalFrame, display: true)
+        }
     }
 
     func updateImages(_ images: PreviewImages) {
@@ -148,13 +198,29 @@ final class PreviewPanel {
     }
 
     func containsPointer(_ point: CGPoint) -> Bool {
-        panel.isVisible && panel.frame.union(anchor).insetBy(dx: -8, dy: -8).contains(appKitPoint(point))
+        presented && panel.frame.union(anchor).insetBy(dx: -8, dy: -8).contains(appKitPoint(point))
     }
 
-    func hide() {
-        panel.orderOut(nil)
+    func hide(animated: Bool = true) {
+        guard presented || !animated else { return }
+        presented = false
+        transitionGeneration += 1
+        let generation = transitionGeneration
         cards.removeAll()
         windowKeys = []
         app = nil
+        if !animated {
+            panel.orderOut(nil)
+            panel.alphaValue = 0
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.13
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            guard let self, self.transitionGeneration == generation, !self.presented else { return }
+            self.panel.orderOut(nil)
+        }
     }
 }

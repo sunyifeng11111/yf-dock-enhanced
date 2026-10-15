@@ -35,5 +35,31 @@ expect(policy.action(windows: [], isFrontmost: true, recentID: 10, lastMinimized
 expect(policy.action(windows: [WindowState(id: 20)],
                      isFrontmost: true, recentID: 20, lastMinimizedID: 10),
        .minimize(20), "a stale minimized-window reference does not block the current window")
+func expectVisibility(_ actual: Bool, _ expected: Bool, _ description: String) {
+    checks += 1
+    if actual != expected { failures += 1; print("FAIL: \(description)") }
+}
+var hover = PreviewHoverPolicy()
+hover.hover(appID: 100, time: 0)
+expectVisibility(hover.allowsPreview(appID: 100, time: 0.3, delay: 0.85, menuOpen: false), false, "quick click approach does not show previews")
+expectVisibility(hover.allowsPreview(appID: 100, time: 1, delay: 0.85, menuOpen: false), true, "deliberate hover shows previews")
+hover.beginInteraction(appID: 100)
+expectVisibility(hover.allowsPreview(appID: 100, time: 5, delay: 0.85, menuOpen: false), false, "holding a mouse button suppresses previews")
+hover.endInteraction()
+expectVisibility(hover.allowsPreview(appID: 100, time: 10, delay: 0.85, menuOpen: false), false, "releasing a click does not reopen previews on the same icon")
+hover.leaveIcon()
+hover.hover(appID: 100, time: 11)
+expectVisibility(hover.allowsPreview(appID: 100, time: 12, delay: 0.85, menuOpen: false), true, "leaving and reentering re-arms previews")
+expectVisibility(hover.allowsPreview(appID: 100, time: 12, delay: 0.85, menuOpen: true), false, "native context menu suppresses previews")
+var quickClick = PreviewHoverPolicy()
+quickClick.beginInteraction(appID: 200)
+quickClick.endInteraction()
+quickClick.hover(appID: 200, time: 0)
+expectVisibility(quickClick.allowsPreview(appID: 200, time: 3, delay: 0.85, menuOpen: false), false, "a click before the first hover tick still suppresses that icon")
+hover.beginInteraction(appID: 100)
+hover.endInteraction()
+hover.hover(appID: 200, time: 20)
+hover.hover(appID: 100, time: 21)
+expectVisibility(hover.allowsPreview(appID: 100, time: 23, delay: 0.85, menuOpen: false), true, "visiting a different icon re-arms the previous icon")
 print("\(checks) checks, \(failures) failures")
 exit(failures == 0 ? 0 : 1)
