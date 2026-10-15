@@ -86,6 +86,12 @@ final class DockService {
     func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let pending { repost(pending.down); self.pending = nil }
+            if !CGEventSource.buttonState(.combinedSessionState, button: .left) &&
+               !CGEventSource.buttonState(.combinedSessionState, button: .right) {
+                // A release can be lost while the tap is disabled. Retain suppression
+                // for the clicked icon, but do not leave hover permanently held.
+                hoverPolicy.endInteraction()
+            }
             if running, let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
@@ -96,19 +102,21 @@ final class DockService {
             if let item {
                 hoverPolicy.beginInteraction(appID: item.app.processIdentifier)
                 preview.hide(animated: false)
-                contextMenuInteraction = type == .rightMouseDown
-                contextMenuStarted = Date()
+                if type == .rightMouseDown || event.flags.contains(.maskControl) {
+                    contextMenuInteraction = true
+                    contextMenuStarted = Date()
+                }
             } else if !(preview.isVisible && preview.panel.frame.contains(appKitPoint(event.location))) {
                 hoverPolicy.beginInteraction(appID: hovered?.app.processIdentifier)
                 preview.hide(animated: false)
-                contextMenuInteraction = false
             }
         }
         if type == .keyDown {
             // Observe activity only; never inspect key codes or characters. Working in a
             // different window ends the consecutive Dock-click restore interaction.
             controller.userChangedWindow()
-            contextMenuInteraction = false
+            // Arrow keys can navigate a still-open Dock menu. Only the menu-state
+            // check in tick() may release context-menu suppression.
             return Unmanaged.passUnretained(event)
         }
         if type == .leftMouseDragged, let pending {

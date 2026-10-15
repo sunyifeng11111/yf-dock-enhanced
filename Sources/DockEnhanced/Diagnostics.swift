@@ -89,6 +89,35 @@ final class NativeIntegrationCheck {
                     try require(!service.preview.isVisible, "released right click stays suppressed until the pointer leaves the icon")
                     _ = try await hover(app)
                 }
+                if let rightDown = CGEvent(mouseEventSource: nil, mouseType: .rightMouseDown, mouseCursorPosition: point, mouseButton: .right) {
+                    _ = service.handle(type: .rightMouseDown, event: rightDown)
+                    // Model a release missed while the event tap was disabled. The physical
+                    // buttons are up; recovery must retain click suppression but end the hold.
+                    _ = service.handle(type: .tapDisabledByTimeout, event: rightDown)
+                    _ = try await hover(app)
+                    try require(service.preview.isVisible, "event-tap recovery restores hover after a missed button release")
+                }
+                for type: CGEventType in [.rightMouseDown, .rightMouseUp] {
+                    CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .right)?.post(tap: .cghidEventTap)
+                }
+                await pause(0.6)
+                try require(service.locator.hasOpenMenu(), "native Dock context menu is detected")
+                move(to: center(windows[0].frame))
+                await pause(0.3)
+                move(to: point)
+                for isDown in [true, false] {
+                    CGEvent(keyboardEventSource: nil, virtualKey: 125, keyDown: isDown)?.post(tap: .cghidEventTap)
+                }
+                await pause(1.2)
+                let menuRemainedOpen = service.locator.hasOpenMenu()
+                let previewStayedHidden = !service.preview.isVisible
+                for isDown in [true, false] {
+                    CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: isDown)?.post(tap: .cghidEventTap)
+                }
+                await pause(0.5)
+                try require(menuRemainedOpen && previewStayedHidden, "keyboard navigation in an open Dock menu keeps previews suppressed")
+                _ = try await hover(app)
+                try require(service.preview.isVisible, "hover resumes after the native Dock menu closes")
                 let previewFrame = service.preview.panel.frame
                 move(to: quartzPoint(CGPoint(x: previewFrame.minX + 12 + 244 + 117, y: previewFrame.minY + 100)))
                 await pause(0.25)

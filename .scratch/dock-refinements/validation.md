@@ -14,10 +14,18 @@ The minimal case was one non-minimized Chrome window. Read-only instrumentation 
 
 - 16 public behavior checks pass, covering click selection plus hover dwell, held buttons, post-click suppression, context-menu blocking, fast clicks before the first hover tick, and moving between icons.
 - Native two-window integration passes, including immediate right-click dismissal, held-right-button suppression, suppression after release, suppression after minimize, exact preview selection, cached minimized preview, restoration, and keyboard activity.
+- The real native Dock context menu was detected, navigated with an arrow key after leaving/reentering the icon, and dismissed with Escape. Previews remained suppressed during navigation and resumed after menu closure.
+- A missed-release regression failed before the recovery fix (`FAIL: event-tap recovery restores hover after a missed button release`) and passed afterward. Recovery reconciles physical button state while retaining suppression for the clicked icon.
 - Native screenshot `docs/images/preview.png` was visually inspected: the hovered second card has a tinted background and indigo outline.
 - The actual packaged settings window was inspected through native Accessibility and a screenshot. Hero, running status, enable switch, hover-delay slider, permission rows, and footer fit without clipping.
 - Appearance/dismissal transitions use native AppKit animations with cancellation generations; Reduce Motion reduces duration and removes the entry offset.
 - Temporary Chrome instrumentation was removed. The Chrome check remains as a debug-only regression tool.
+
+## Final review
+
+Standards: two reliability findings were fixed (keyboard navigation releasing menu suppression; stale held-button state after event-tap interruption). Follow-up review found no remaining actionable issues.
+
+Spec: the menu-navigation finding was fixed. Follow-up review found no remaining requirement gaps or scope creep. The added real-menu integration check subsequently passed.
 
 ## Limits and setup
 
