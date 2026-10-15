@@ -177,12 +177,17 @@ final class NativeIntegrationCheck {
 
     @MainActor private func savePreview() async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-        guard let window = content.windows.first(where: { $0.windowID == CGWindowID(service.preview.panel.windowNumber) }) else { return }
+        let panelFrame = service.preview.panel.frame
+        let captureFrame = CGRect(origin: quartzPoint(CGPoint(x: panelFrame.minX, y: panelFrame.maxY)), size: panelFrame.size)
+        guard let display = content.displays.first(where: { $0.frame.contains(CGPoint(x: captureFrame.midX, y: captureFrame.midY)) }) else { return }
         let config = SCStreamConfiguration()
-        config.width = Int(service.preview.panel.frame.width * 2)
-        config.height = Int(service.preview.panel.frame.height * 2)
+        config.width = Int(panelFrame.width * 2)
+        config.height = Int(panelFrame.height * 2)
+        config.sourceRect = captureFrame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
         config.showsCursor = false
-        let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: config)
+        // Capture only the displayed panel bounds so native glass includes its actual
+        // composited backdrop; isolated-window captures flatten the glass to gray.
+        let image = try await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(display: display, excludingWindows: []), configuration: config)
         let bitmap = NSBitmapImageRep(cgImage: image)
         try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "/tmp/dock-enhanced-preview.png"))
     }

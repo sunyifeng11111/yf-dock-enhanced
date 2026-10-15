@@ -13,7 +13,6 @@ final class PreviewCard: NSButton {
     private(set) var snapshot: AppWindow
     private let thumbnail = NSImageView()
     private let name = NSTextField(labelWithString: "")
-    private let detail = NSTextField(labelWithString: "")
     var selected: ((AppWindow) -> Void)?
     private var hoverTracking: NSTrackingArea?
     private var highlightedByPointer = false
@@ -23,26 +22,22 @@ final class PreviewCard: NSButton {
         super.init(frame: frame)
         title = ""
         isBordered = false
+        focusRingType = .none
         wantsLayer = true
-        layer?.cornerRadius = 10
-        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.65).cgColor
-        layer?.borderWidth = 1.5
-        layer?.borderColor = NSColor.clear.cgColor
-        thumbnail.frame = CGRect(x: 8, y: 32, width: frame.width - 16, height: 126)
+        layer?.cornerRadius = 16
+        layer?.backgroundColor = NSColor.clear.cgColor
+        thumbnail.frame = CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
         thumbnail.imageScaling = .scaleProportionallyUpOrDown
         thumbnail.wantsLayer = true
         thumbnail.layer?.cornerRadius = 6
         thumbnail.layer?.masksToBounds = true
         addSubview(thumbnail)
         name.stringValue = window.title
-        name.frame = CGRect(x: 10, y: 8, width: frame.width - 20, height: 18)
-        name.font = .systemFont(ofSize: 12, weight: .medium)
+        name.frame = CGRect(x: 10, y: 143, width: frame.width - 20, height: 20)
+        name.font = .systemFont(ofSize: 13)
+        name.alignment = .center
         name.lineBreakMode = .byTruncatingTail
         addSubview(name)
-        detail.frame = CGRect(x: 10, y: 161, width: frame.width - 20, height: 16)
-        detail.font = .systemFont(ofSize: 10)
-        detail.textColor = .secondaryLabelColor
-        addSubview(detail)
         target = self
         action = #selector(selectWindow)
         setAccessibilityLabel(window.title)
@@ -64,14 +59,16 @@ final class PreviewCard: NSButton {
 
     private func updateHighlight() {
         guard let layer else { return }
-        let color = highlightedByPointer ? NSColor.systemIndigo.withAlphaComponent(0.14) : NSColor.controlBackgroundColor.withAlphaComponent(0.65)
+        var color = NSColor.clear.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            color = highlightedByPointer ? NSColor.labelColor.withAlphaComponent(0.07).cgColor : NSColor.clear.cgColor
+        }
         let animation = CABasicAnimation(keyPath: "backgroundColor")
         animation.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
-        animation.toValue = color.cgColor
+        animation.toValue = color
         animation.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
         layer.add(animation, forKey: "pointerHighlight")
-        layer.backgroundColor = color.cgColor
-        layer.borderColor = highlightedByPointer ? NSColor.systemIndigo.withAlphaComponent(0.65).cgColor : NSColor.clear.cgColor
+        layer.backgroundColor = color
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -80,8 +77,8 @@ final class PreviewCard: NSButton {
 
     func update(image: NSImage?, icon: NSImage?) {
         thumbnail.image = image ?? icon
-        detail.stringValue = snapshot.state.minimized ? (image == nil ? "已最小化 · 点击恢复" : "已最小化 · 缓存画面") : (image == nil ? "点击切换窗口" : "点击切换")
-        setAccessibilityHelp(detail.stringValue)
+        let help = snapshot.state.minimized ? (image == nil ? "已最小化 · 点击恢复" : "已最小化 · 缓存画面") : "点击切换窗口"
+        setAccessibilityHelp(help)
     }
 
     func update(snapshot: AppWindow, image: NSImage?, icon: NSImage?) {
@@ -129,7 +126,7 @@ final class PreviewPanel {
         let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: anchor.midX, y: anchor.midY)) }) ?? NSScreen.main
         let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1200, height: 800)
         let width = min(CGFloat(windows.count) * 244 + 24, available.width - 24)
-        let size = CGSize(width: max(180, width), height: 228)
+        let size = CGSize(width: max(180, width), height: 220)
         var position = CGPoint(x: anchor.midX - size.width / 2, y: anchor.maxY + 10)
         let full = screen?.frame ?? available
         if anchor.midX - full.minX < 100 {
@@ -140,24 +137,19 @@ final class PreviewPanel {
         position.x = min(max(position.x, available.minX + 8), available.maxX - size.width - 8)
         position.y = min(max(position.y, available.minY + 8), available.maxY - size.height - 8)
         panel.setFrame(CGRect(origin: position, size: size), display: false)
-        let background = NSVisualEffectView(frame: CGRect(origin: .zero, size: size))
-        background.material = .hudWindow
-        background.blendingMode = .behindWindow
-        background.state = .active
-        background.wantsLayer = true
-        background.layer?.cornerRadius = 14
-        background.layer?.masksToBounds = true
-        let header = NSTextField(labelWithString: "\(item.app.localizedName ?? "应用") · \(windows.count) 个窗口")
-        header.font = .systemFont(ofSize: 12, weight: .semibold)
-        header.frame = CGRect(x: 16, y: 202, width: size.width - 32, height: 18)
-        background.addSubview(header)
-        let scroll = NSScrollView(frame: CGRect(x: 12, y: 10, width: size.width - 24, height: 184))
+        let content = NSView(frame: CGRect(origin: .zero, size: size))
+        let header = NSTextField(labelWithString: item.app.localizedName ?? "应用")
+        header.font = .systemFont(ofSize: 14, weight: .medium)
+        header.alignment = .center
+        header.frame = CGRect(x: 20, y: 188, width: size.width - 40, height: 20)
+        content.addSubview(header)
+        let scroll = NSScrollView(frame: CGRect(x: 12, y: 10, width: size.width - 24, height: 170))
         scroll.drawsBackground = false
         scroll.hasHorizontalScroller = CGFloat(windows.count) * 244 > scroll.frame.width
         scroll.autohidesScrollers = true
-        let document = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(windows.count) * 244, height: 180))
+        let document = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(windows.count) * 244, height: 170))
         cards = windows.enumerated().map { index, window in
-            let card = PreviewCard(window: window, frame: CGRect(x: CGFloat(index) * 244, y: 0, width: 234, height: 180))
+            let card = PreviewCard(window: window, frame: CGRect(x: CGFloat(index) * 244, y: 0, width: 234, height: 170))
             card.selected = { [weak self] selectedWindow in
                 self?.onSelect?(selectedWindow, item.app)
                 self?.hide()
@@ -167,8 +159,8 @@ final class PreviewPanel {
             return card
         }
         scroll.documentView = document
-        background.addSubview(scroll)
-        panel.contentView = background
+        content.addSubview(scroll)
+        panel.contentView = makeBackground(content: content)
         let finalFrame = panel.frame
         if !wasPresented {
             panel.alphaValue = 0
@@ -183,6 +175,25 @@ final class PreviewPanel {
             panel.animator().alphaValue = 1
             panel.animator().setFrame(finalFrame, display: true)
         }
+    }
+
+    private func makeBackground(content: NSView) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: content.frame)
+            glass.style = .regular
+            glass.cornerRadius = 32
+            glass.contentView = content
+            return glass
+        }
+        let blur = NSVisualEffectView(frame: content.frame)
+        blur.material = .popover
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.cornerRadius = 32
+        blur.layer?.masksToBounds = true
+        blur.addSubview(content)
+        return blur
     }
 
     func updateImages(_ images: PreviewImages) {
