@@ -22,4 +22,7 @@ with open(sys.argv[1], 'wb') as f:
 PY
     codesign --force --sign - --identifier "dev.yifeng.DockEnhancedSwitcherFixture$name" "$fixture_dir"
 done
-"$binary_dir/DockEnhanced" --check-command-tab "$project_dir/.build/Switcher Fixture A.app" "$project_dir/.build/Switcher Fixture B.app" "$@"
+check_mode=--check-command-tab
+if [[ "${1:-}" == --recovery ]]; then check_mode=--check-switcher-recovery; shift; fi
+if [[ "${1:-}" == --visual ]]; then check_mode=--check-switcher-visual; shift; fi
+"$binary_dir/DockEnhanced" "$check_mode" "$project_dir/.build/Switcher Fixture A.app" "$project_dir/.build/Switcher Fixture B.app" "$@"

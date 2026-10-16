@@ -34,7 +34,14 @@ if let index = CommandLine.arguments.firstIndex(of: "--probe-fixture-inventory")
     exit(windows.count == 2 ? 0 : 3)
 }
 let delegate: NSApplicationDelegate
-if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-interaction"), CommandLine.arguments.count > index + 2 {
+if CommandLine.arguments.contains("--check-settings-visual") { delegate = SettingsVisualCheck() }
+else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-visual"), CommandLine.arguments.count > index + 2 {
+    delegate = WindowSwitcherVisualCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
+}
+else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-recovery"), CommandLine.arguments.count > index + 2 {
+    delegate = WindowSwitcherRecoveryCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
+}
+else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-interaction"), CommandLine.arguments.count > index + 2 {
     delegate = WindowSwitcherInteractionCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
 }
 else if CommandLine.arguments.contains("--interaction-fixture") { delegate = SwitcherInteractionFixture() }

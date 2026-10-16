@@ -149,8 +149,9 @@ final class SwitcherInteractionFixture: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         for index in 0..<20 {
-            let window = NSWindow(contentRect: NSScreen.main!.visibleFrame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.title = "Controlled window \(index + 1)"
+            let rect = index == 0 ? CGRect(x: 120, y: 160, width: 260, height: 500) : index == 1 ? CGRect(x: 180, y: 200, width: 720, height: 320) : NSScreen.main!.visibleFrame
+            let window = NSWindow(contentRect: rect, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.title = index == 0 ? "Controlled portrait window with a deliberately long title for truncation" : "Controlled window \(index + 1)"
             let content = NSView(frame: window.contentView!.bounds)
             content.wantsLayer = true
             content.layer?.backgroundColor = NSColor(calibratedRed: CGFloat(index % 3) * 0.12 + 0.18, green: 0.26, blue: 0.34, alpha: 1).cgColor

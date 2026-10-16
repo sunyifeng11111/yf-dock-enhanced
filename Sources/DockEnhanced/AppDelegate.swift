@@ -49,7 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         if let index = CommandLine.arguments.firstIndex(of: "--integration-check"), CommandLine.arguments.count > index + 1 {
             service.configure(previewsEnabled: true, clickEnabled: true, switcherEnabled: false)
-            NativeIntegrationCheck(service: service, fixtureURL: URL(fileURLWithPath: CommandLine.arguments[index + 1])).run()
+            NativeIntegrationCheck(service: service, fixtureURL: URL(fileURLWithPath: CommandLine.arguments[index + 1]),
+                                   sourceFixtureURL: CommandLine.arguments.count > index + 2 ? URL(fileURLWithPath: CommandLine.arguments[index + 2]) : nil).run()
             return
         }
         #endif

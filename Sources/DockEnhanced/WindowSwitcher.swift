@@ -22,6 +22,7 @@ private func switcherFocusChanged(_ observer: AXObserver, _ element: AXUIElement
 /// enumeration, capture or window restoration runs in the event-tap callback.
 final class NativeWindowSwitcher {
     let panel = WindowSwitcherPanel()
+    let failureNotice = WindowSwitcherFailureNotice()
     private(set) var workflow = WindowSwitcher()
     private(set) var candidates: [SwitcherCandidate] = []
     var onCandidatesChanged: (([SwitcherCandidate]) -> Void)?
@@ -32,6 +33,9 @@ final class NativeWindowSwitcher {
     private var scanning = false
     private var generation = 0
     private var activationGeneration = 0
+    private var sessionGeneration = 0
+    private var commandMissingSince: Double?
+    private var failureWork: DispatchWorkItem?
     private var swallowedKeys = Set<Int64>()
     private var swallowMouseUp = false
     private var displayWork: DispatchWorkItem?
@@ -154,7 +158,7 @@ final class NativeWindowSwitcher {
                     return true
                 }
                 cancel()
-            } else { activationGeneration += 1 }
+            } else { cancel() }
             return false
         }
         guard type == .keyDown else { return false }
@@ -163,6 +167,10 @@ final class NativeWindowSwitcher {
                 guard !candidates.isEmpty else { return false }
                 controller.userChangedWindow()
                 activationGeneration += 1
+                sessionGeneration += 1
+                let selectionGeneration = sessionGeneration
+                commandMissingSince = nil
+                hideFailure()
                 lastPointer = NSEvent.mouseLocation
                 let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let current = pid.flatMap { focusedWindows[$0] }
@@ -174,13 +182,12 @@ final class NativeWindowSwitcher {
                     panel.prepare(candidates: sessionCandidates, screen: sessionScreen)
                     // Build native views after returning the input callback, while
                     // the no-flash interval is still running.
-                    let sessionIDs = snapshot.windows
                     DispatchQueue.main.async { [weak self] in
-                        guard let self, self.workflow.snapshot?.windows == sessionIDs else { return }
+                        guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
                         self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen)
                     }
                     let work = DispatchWorkItem { [weak self] in
-                        guard let self else { return }
+                        guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
                         self.workflow.advanceTime(to: ProcessInfo.processInfo.systemUptime)
                         self.render()
                     }
@@ -204,15 +211,32 @@ final class NativeWindowSwitcher {
                 return true
             }
             cancel()
-        } else { activationGeneration += 1 }
+        } else { cancel() }
         return false
     }
 
     func updatePreviewImage(_ image: NSImage?, for windowID: SwitcherWindowID) { panel.updatePreviewImage(image, for: windowID) }
     func clearPreviewImages() { panel.clearPreviewImages() }
 
+    /// Polling discovers a missed release; uncertainty cancels rather than confirms.
+    func checkCommandState(commandIsDown: Bool, time: Double = ProcessInfo.processInfo.systemUptime) {
+        guard isSelecting, !commandIsDown else { commandMissingSince = nil; return }
+        // Combined flags can change before the queued release callback arrives.
+        // Give that event a full heartbeat before treating its absence as a fault.
+        guard let missingSince = commandMissingSince else { commandMissingSince = time; return }
+        if time - missingSince >= 0.10 { cancel() }
+    }
+
+    func interrupt() {
+        cancel()
+        swallowedKeys.removeAll()
+        swallowMouseUp = false
+    }
+
     func cancel() {
         activationGeneration += 1
+        controller.cancelDeferredReveal()
+        hideFailure()
         workflow.cancel()
         endPresentation()
     }
@@ -237,15 +261,32 @@ final class NativeWindowSwitcher {
         let confirmationGeneration = activationGeneration
         let target = workflow.commandReleased()
         let candidate = sessionCandidates.first { $0.id == target }
+        let screen = sessionScreen
         endPresentation()
         guard let candidate else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, self.activationGeneration == confirmationGeneration else { return }
-            _ = self.controller.reveal(candidate.window, app: candidate.app)
+            _ = self.controller.reveal(candidate.window, app: candidate.app) { [weak self] success in
+                guard let self, self.activationGeneration == confirmationGeneration, !success else { return }
+                self.failureNotice.show(screen: screen)
+                let dismiss = DispatchWorkItem { [weak self] in
+                    guard let self, self.activationGeneration == confirmationGeneration else { return }
+                    self.hideFailure()
+                }
+                self.failureWork = dismiss
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: dismiss)
+            }
         }
     }
 
+    private func hideFailure() {
+        failureWork?.cancel(); failureWork = nil
+        failureNotice.panel.orderOut(nil)
+    }
+
     private func endPresentation() {
+        sessionGeneration += 1
+        commandMissingSince = nil
         displayWork?.cancel(); displayWork = nil
         sessionCandidates = []
         sessionScreen = nil
@@ -262,7 +303,7 @@ final class NativeWindowSwitcher {
 
     private func render() {
         guard let snapshot = workflow.snapshot, workflow.isPanelVisible else {
-            if !isSelecting { displayWork?.cancel(); displayWork = nil; sessionScreen = nil; panel.hide() }
+            if !isSelecting { endPresentation() }
             return
         }
         panel.show(candidates: sessionCandidates, selected: snapshot.selected, screen: sessionScreen)
@@ -273,8 +314,13 @@ private final class SwitcherGridView: NSView { override var isFlipped: Bool { tr
 
 private final class SwitcherCard: NSView {
     override var isFlipped: Bool { true }
-    let candidate: SwitcherCandidate
+    private(set) var candidate: SwitcherCandidate
     private let thumbnail = NSImageView()
+    private let title = NSTextField(labelWithString: "")
+    private let appName = NSTextField(labelWithString: "")
+    private let minimizedBadge = NSTextField(labelWithString: "已最小化")
+    private let appIcon = NSImageView()
+    private var hasPreview = false
     init(candidate: SwitcherCandidate, frame: CGRect) {
         self.candidate = candidate
         super.init(frame: frame)
@@ -287,27 +333,42 @@ private final class SwitcherCard: NSView {
         thumbnail.layer?.cornerRadius = 6
         thumbnail.layer?.masksToBounds = true
         addSubview(thumbnail)
-        let title = NSTextField(labelWithString: candidate.window.title.isEmpty ? "无标题窗口" : candidate.window.title)
         title.frame = CGRect(x: 10, y: 143, width: frame.width - 20, height: 20)
         title.font = .systemFont(ofSize: 13)
         title.alignment = .center
         title.lineBreakMode = .byTruncatingTail
         addSubview(title)
-        let minimized = candidate.window.state.minimized ? " · 已最小化" : ""
-        let appName = NSTextField(labelWithString: (candidate.app.localizedName ?? "应用") + minimized)
-        appName.frame = CGRect(x: 10, y: 165, width: frame.width - 20, height: 18)
+        appIcon.frame = CGRect(x: 12, y: 166, width: 16, height: 16)
+        appIcon.imageScaling = .scaleProportionallyUpOrDown
+        addSubview(appIcon)
         appName.font = .systemFont(ofSize: 11)
         appName.textColor = .secondaryLabelColor
-        appName.alignment = .center
         appName.lineBreakMode = .byTruncatingTail
         addSubview(appName)
+        minimizedBadge.frame = CGRect(x: frame.width - 66, y: 166, width: 58, height: 16)
+        minimizedBadge.font = .systemFont(ofSize: 10)
+        minimizedBadge.textColor = .secondaryLabelColor
+        minimizedBadge.alignment = .right
+        addSubview(minimizedBadge)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel("\(candidate.app.localizedName ?? "应用") · \(title.stringValue)\(minimized)")
+        update(candidate: candidate)
         update(image: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    func update(candidate: SwitcherCandidate) {
+        self.candidate = candidate
+        title.stringValue = candidate.window.title.isEmpty ? "无标题窗口" : candidate.window.title
+        appName.stringValue = candidate.app.localizedName ?? "应用"
+        appIcon.image = candidate.app.icon
+        let minimized = candidate.window.state.minimized
+        minimizedBadge.isHidden = !minimized
+        appName.frame = CGRect(x: 34, y: 165, width: frame.width - (minimized ? 108 : 46), height: 18)
+        setAccessibilityLabel("\(appName.stringValue) · \(title.stringValue)\(minimized ? " · 已最小化" : "")")
+        setAccessibilityHelp(minimized && hasPreview ? "已最小化 · 缓存画面" : "选择并切换此窗口")
+    }
     func update(image: NSImage?) {
+        hasPreview = image != nil
         thumbnail.image = image ?? candidate.app.icon
         thumbnail.frame = image == nil ? CGRect(x: (frame.width - 64) / 2, y: 39, width: 64, height: 64) : CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
         setAccessibilityHelp(candidate.window.state.minimized && image != nil ? "已最小化 · 缓存画面" : "选择并切换此窗口")
@@ -385,6 +446,7 @@ final class WindowSwitcherPanel {
         let wasVisible = panel.isVisible
         let rebuilt = windowIDs != candidates.map(\.id)
         if rebuilt { prepareContent(candidates: candidates, screen: screen) }
+        for candidate in candidates { cards[candidate.id]?.update(candidate: candidate) }
         for (id, card) in cards { card.select(id == selected) }
         if self.selected != selected || !wasVisible || rebuilt, let card = cards[selected] { card.scrollToVisible(card.bounds) }
         self.selected = selected
@@ -417,4 +479,32 @@ final class WindowSwitcherPanel {
         for card in cards.values { card.update(image: nil) }
     }
     func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; scroll = nil; selected = nil }
+}
+
+/// Nonactivating, bounded feedback that never substitutes another window.
+final class WindowSwitcherFailureNotice {
+    let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    init() {
+        panel.level = .popUpMenu
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.setAccessibilityTitle("无法切换到此窗口，请重试")
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 58))
+        let label = NSTextField(labelWithString: "无法切换到此窗口，请重试")
+        label.font = .systemFont(ofSize: 13)
+        label.alignment = .center
+        label.frame = CGRect(x: 16, y: 20, width: 268, height: 18)
+        content.addSubview(label)
+        panel.contentView = makeWindowPreviewBackground(content: content)
+    }
+    func show(screen: NSScreen?) {
+        let available = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+        panel.setFrame(CGRect(x: available.midX - 150, y: available.midY - 29, width: 300, height: 58), display: false)
+        panel.orderFrontRegardless()
+    }
 }
