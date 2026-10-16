@@ -3,7 +3,7 @@
 Type: bug
 Status: ready-for-agent
 Blocked by: None
-Resolution: fixed and installed as 0.6.1/build12; installed-app authorization pending
+Resolution: fixed and installed as 0.6.1/build12; installed-app authorization subsequently confirmed
 
 ## Problem
 
@@ -39,3 +39,4 @@ Resolution: fixed and installed as 0.6.1/build12; installed-app authorization pe
 ## Comments
 
 - 2026-10-16：用户明确指出触发操作为 Command+Tab 切换窗口。按 diagnosing-bugs 建立失败先行的真实截图回路；未变更 AGENTS.md 或其他用户文件。
+- 2026-10-16：后续材质调整任务开始时，安装版 0.6.1 的实际设置页已显示“正在运行”“增强可用 · 窗口缩略图已启用”，原授权待办已解除。后续版本的授权状态由任务 07 单独记录。

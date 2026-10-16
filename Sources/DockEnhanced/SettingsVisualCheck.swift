@@ -85,14 +85,15 @@ func controlledBackdrop() -> NSWindow {
     return window
 }
 
-func saveControlledCompositor(_ window: NSWindow, name: String) throws {
+func saveControlledCompositor(_ window: NSWindow, name: String, prefix: String = "command-tab-05-", crop: CGRect? = nil) throws {
     guard CGPreflightScreenCaptureAccess() else { print("UNAVAILABLE: compositor screenshot requires existing Screen Recording access"); return }
-    let rect = CGRect(x: window.frame.minX - 8, y: (NSScreen.screens.first?.frame.maxY ?? 0) - window.frame.maxY - 8, width: window.frame.width + 16, height: window.frame.height + 16)
+    let frame = crop ?? window.frame.insetBy(dx: -8, dy: -8)
+    let rect = CGRect(x: frame.minX, y: (NSScreen.screens.first?.frame.maxY ?? 0) - frame.maxY, width: frame.width, height: frame.height)
     guard let image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, [.bestResolution]),
           let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
     let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("docs/images")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let url = directory.appendingPathComponent("command-tab-05-" + name + ".png")
+    let url = directory.appendingPathComponent(prefix + name + ".png")
     try data.write(to: url)
     print("SCREENSHOT: \(url.path)")
 }
