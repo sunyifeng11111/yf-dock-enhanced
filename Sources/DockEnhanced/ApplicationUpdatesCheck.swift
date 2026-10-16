@@ -3,7 +3,7 @@ import AppKit
 import Sparkle
 
 @MainActor
-func checkApplicationUpdates() -> Int32 {
+func checkApplicationUpdates() async -> Int32 {
     _ = NSApplication.shared
     NSApp.setActivationPolicy(.accessory)
     let suite = "dev.yifeng.DockEnhanced.update-check." + UUID().uuidString
@@ -15,7 +15,20 @@ func checkApplicationUpdates() -> Int32 {
         if !condition { failures += 1 }
         print("\(condition ? "PASS" : "FAIL"): \(message)")
     }
-    let updates = ApplicationUpdates(defaults: defaults)
+    let visual = CommandLine.arguments.contains("--visual")
+    let fixture = FileManager.default.temporaryDirectory.appendingPathComponent(suite + ".app")
+    defer { try? FileManager.default.removeItem(at: fixture) }
+    var host = Bundle.main
+    if visual {
+        let resources = fixture.appendingPathComponent("Contents/Resources")
+        try? FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let info: [String: Any] = ["CFBundleIdentifier": suite, "CFBundleShortVersionString": "0.6.8", "CFBundlePackageType": "APPL"]
+        let data = try? PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+        try? data?.write(to: fixture.appendingPathComponent("Contents/Info.plist"))
+        try? FileManager.default.copyItem(atPath: FileManager.default.currentDirectoryPath + "/assets/AppIcon.icns", toPath: resources.appendingPathComponent("AppIcon.icns").path)
+        host = Bundle(url: fixture) ?? .main
+    }
+    let updates = ApplicationUpdates(bundle: host, defaults: defaults)
     defer { updates.dismissUpdateInstallation() }
     require(updates.automaticChecks, "automatic checking defaults on")
     updates.automaticChecks = false
@@ -45,7 +58,35 @@ func checkApplicationUpdates() -> Int32 {
     require(updates.actions.map(\.key) == ["重试", "前往下载", "关闭"], "failure offers retry and manual fallback")
     updates.choose(updates.actions.last!)
     require(acknowledgements == 1, "closing an error finishes the failed Sparkle session")
-    require(updates.allowedChannels(for: SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: updates, delegate: nil)).isEmpty, "only the stable default channel is selected")
+    let channelEngine = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: updates, delegate: nil)
+    defer { withExtendedLifetime(channelEngine) {} }
+    require(updates.allowedChannels(for: channelEngine).isEmpty, "only the stable default channel is selected")
+    if CommandLine.arguments.contains("--visual") {
+        let preview = ApplicationUpdates(bundle: host, defaults: defaults)
+        defer { preview.dismissUpdateInstallation() }
+        NSApp.applicationIconImage = NSImage(contentsOfFile: FileManager.default.currentDirectoryPath + "/assets/AppIcon.icns")
+        let backdrop = controlledBackdrop()
+        defer { backdrop.orderOut(nil) }
+        preview.showUpdateNotFoundWithError(NSError(domain: "Controlled", code: 0)) {}
+        if let window = preview.previewWindow {
+            window.level = .floating
+            window.orderFrontRegardless()
+            window.appearance = NSAppearance(named: .darkAqua)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? saveControlledCompositor(window, name: "current-dark", prefix: "update-compact-")
+            window.appearance = NSAppearance(named: .aqua)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? saveControlledCompositor(window, name: "current-light", prefix: "update-compact-")
+        }
+        preview.showUpdaterError(NSError(domain: "ControlledUpdateFailure", code: 1, userInfo: [NSLocalizedDescriptionKey: "The download could not be verified."])) {}
+        if let window = preview.previewWindow {
+            window.level = .floating
+            window.orderFrontRegardless()
+            window.appearance = NSAppearance(named: .darkAqua)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? saveControlledCompositor(window, name: "error-dark", prefix: "update-compact-")
+        }
+    }
     let keys = ["软件更新", "自动检查更新", "检查更新…", "下载并更新", "稍后", "跳过此版本", "更新失败，仍可使用当前版本"]
     require(keys.allSatisfy { Localization.text($0, language: .english) != $0 }, "update controls have English translations")
     if let index = CommandLine.arguments.firstIndex(of: "--engine-app"), CommandLine.arguments.count > index + 1,

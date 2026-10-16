@@ -4,7 +4,7 @@ import ApplicationServices
 #if DEBUG
 if CommandLine.arguments.contains("--check-application-updates") {
     _ = NSApplication.shared
-    Task { @MainActor in exit(checkApplicationUpdates()) }
+    Task { @MainActor in exit(await checkApplicationUpdates()) }
     RunLoop.main.run()
 }
 if CommandLine.arguments.contains("--check-localization") { exit(checkLocalization()) }

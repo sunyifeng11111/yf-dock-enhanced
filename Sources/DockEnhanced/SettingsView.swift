@@ -119,7 +119,6 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L(page.rawValue)).font(.system(size: 23, weight: .semibold))
-                    Text(L(page.detail)).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 22)
                 ScrollView {
@@ -203,8 +202,6 @@ struct SettingsView: View {
                     }.padding(16)
                 }
             }.settingsGroup()
-            Text(L("点击或右键时暂时关闭预览，移开后再悬停显示。最小化窗口使用最近一次的缓存画面。"))
-                .settingsFootnote()
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: model.previewEnabled)
 
@@ -212,29 +209,19 @@ struct SettingsView: View {
             settingToggle(L("点击收起 / 恢复"), detail: L("点击前台应用的 Dock 图标收起，再点击恢复。"), symbol: "cursorarrow.click", isOn: $model.clickEnabled,
                           needsPermission: model.clickEnabled && !model.accessibilityGranted)
                 .settingsGroup()
-            Text(L("关闭后，Dock 点击沿用系统行为，仍可通过预览选择窗口。"))
-                .settingsFootnote()
         }
     }
 
     @ViewBuilder private var switcherSettings: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            settingToggle(L("Command+Tab 增强"), detail: L("跨应用逐个选择窗口，包含已最小化和隐藏应用的窗口。"), symbol: "rectangle.3.group", isOn: $model.switcherEnabled,
+        VStack(alignment: .leading, spacing: 10) {
+            settingToggle(L("Command+Tab 增强"), detail: "", symbol: "rectangle.3.group", isOn: $model.switcherEnabled,
                           needsPermission: model.switcherEnabled && !model.accessibilityGranted)
                 .settingsGroup()
-            Label(model.switcherStatus, systemImage: model.switcherAvailable ? "checkmark.circle" : "info.circle")
-                .font(.system(size: 12)).foregroundStyle(model.switcherAvailable ? Color.secondary : Color.orange)
-                .padding(.horizontal, 4).fixedSize(horizontal: false, vertical: true)
-            Text(L("按住 Command 并按 Tab 浏览，松开确认；Shift+Tab 反向选择。方向键和鼠标也可选中，Enter 确认，Esc 取消。关闭后立即恢复系统 Command+Tab。"))
-                .settingsFootnote()
-        }
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(L("缩略图与隐私"))
-            VStack(alignment: .leading, spacing: 10) {
-                Text(L("屏幕录制仅用于缩略图；未授权时仍可使用图标和标题切换窗口。最小化窗口使用最近缓存，并标注“已最小化”。"))
-                Text(L("图片只在内存中保留，最多 64 张；关闭两种预览、撤销录屏权限或退出会清除。窗口标题、使用历史与图片不会写入磁盘。"))
-                Text(L("仅识别切换和导航需要的物理按键与修饰键，不读取或记录输入文字。"))
-            }.font(.system(size: 12)).foregroundStyle(.secondary).padding(16).settingsGroup()
+            if model.switcherEnabled && (!model.switcherAvailable || !model.captureGranted || !model.accessibilityGranted) {
+                Label(model.switcherStatus, systemImage: "info.circle")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 4).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -248,8 +235,6 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                Text(L("切换后立即生效，无需重新启动。"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }.padding(16).settingsGroup()
         }
         VStack(alignment: .leading, spacing: 8) {
@@ -257,8 +242,6 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(L("自动检查更新"), isOn: $updates.automaticChecks)
                     .toggleStyle(.switch).controlSize(.small)
-                Text(L("每 24 小时检查正式版；仅在你确认后下载、安装并重启。"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
                 HStack {
                     Text(L(updates.statusKey)).font(.system(size: 11)).foregroundStyle(.secondary)
                     Spacer()
@@ -269,8 +252,6 @@ struct SettingsView: View {
                     Text(L("上次检查：") + lastCheck.formatted(date: .abbreviated, time: .shortened))
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
-                Button(L("前往下载")) { NSWorkspace.shared.open(ApplicationUpdates.releasePage) }
-                    .buttonStyle(.link).font(.system(size: 11))
             }.padding(16).settingsGroup()
         }
         VStack(alignment: .leading, spacing: 8) {
@@ -317,7 +298,7 @@ struct SettingsView: View {
             settingIcon(symbol)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: 13, weight: .medium))
-                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if !detail.isEmpty { Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 if needsPermission {
                     Button(L("需要授权 · 前往通用设置")) { page = .general }
                         .buttonStyle(.link).font(.system(size: 11)).foregroundStyle(.orange)

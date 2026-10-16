@@ -29,6 +29,9 @@ final class Localization: ObservableObject {
         language == .english ? english[key] ?? key : key
     }
     static let english: [String: String] = [
+        "完成": "Done",
+        "详细信息": "Details",
+        "完成后将重新启动。": "The app will restart when finished.",
         "软件更新": "Software Updates",
         "自动检查更新": "Automatically Check for Updates",
         "检查更新…": "Check for Updates…",

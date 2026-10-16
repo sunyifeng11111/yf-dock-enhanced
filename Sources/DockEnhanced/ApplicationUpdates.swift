@@ -21,6 +21,23 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     @Published private(set) var errorDetail = ""
     @Published private(set) var progress: Double?
     @Published private(set) var actions: [UpdateAction] = []
+    @Published var showErrorDetails = false {
+        didSet { resizeWindow() }
+    }
+    var applicationIcon: NSImage {
+        if let url = bundle.url(forResource: "AppIcon", withExtension: "icns"), let image = NSImage(contentsOf: url) { return image }
+        return NSApplication.shared.applicationIconImage
+    }
+    var currentVersion: String { bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? L("开发版") }
+    var isBusy: Bool { ["正在检查更新…", "正在下载更新…", "正在验证并准备更新…", "正在安装更新…"].contains(titleKey) }
+    var panelHeight: CGFloat {
+        if !errorDetail.isEmpty { return showErrorDetails ? 310 : 222 }
+        if isBusy { return 224 }
+        return titleKey == "已是最新版本" ? 176 : 210
+    }
+    #if DEBUG
+    var previewWindow: NSWindow? { window }
+    #endif
     private let defaults: UserDefaults
     private let bundle: Bundle
     private var updater: SPUUpdater?
@@ -118,7 +135,7 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
             ])
             return
         }
-        present(title: statusKey, message: "下载完成后将安装并重新启动，保留现有设置。", actions: [
+        present(title: statusKey, message: "完成后将重新启动。", actions: [
             UpdateAction("下载并更新") { reply(.install) },
             UpdateAction("稍后") { reply(.dismiss) },
             UpdateAction("跳过此版本") { reply(.skip) }
@@ -129,7 +146,7 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {}
     func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
         statusKey = "已是最新版本"
-        present(title: statusKey, message: "没有适用于当前系统的新版本。", actions: [UpdateAction("好", action: acknowledgement)])
+        present(title: statusKey, message: "", actions: [UpdateAction("完成", action: acknowledgement)])
     }
     func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
         statusKey = "更新失败，仍可使用当前版本"
@@ -145,7 +162,7 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     }
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         received = 0; expected = 0
-        present(title: "正在下载更新…", message: "下载完成后将安装并重新启动，保留现有设置。", actions: [UpdateAction("取消", action: cancellation)])
+        present(title: "正在下载更新…", message: "完成后将重新启动。", actions: [UpdateAction("取消", action: cancellation)])
     }
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) { expected = expectedContentLength }
     func showDownloadDidReceiveData(ofLength length: UInt64) {
@@ -153,7 +170,7 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
         if expected > 0 { progress = min(1, Double(received) / Double(expected)) }
     }
     func showDownloadDidStartExtractingUpdate() {
-        present(title: "正在验证并准备更新…", message: "请稍候…", actions: [])
+        present(title: "正在验证并准备更新…", message: "", actions: [])
     }
     func showExtractionReceivedProgress(_ progress: Double) { self.progress = min(1, max(0, progress)) }
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) { reply(.install) }
@@ -167,20 +184,33 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     func showUpdateInFocus() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
 
     private func present(title: String, message: String, actions: [UpdateAction], detail: String = "", activate: Bool = true) {
-        titleKey = title; messageKey = message; self.actions = actions; errorDetail = detail; progress = nil
+        titleKey = title; messageKey = message; self.actions = actions; errorDetail = detail; progress = nil; showErrorDetails = false
         closeAction = actions.last?.action
         if window == nil {
-            let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 480, height: 300), styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
+            let panel = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 440, height: panelHeight), styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isReleasedWhenClosed = false
+            panel.hidesOnDeactivate = false
             panel.delegate = self
+            panel.titleVisibility = .hidden
+            panel.titlebarAppearsTransparent = true
+            panel.isMovableByWindowBackground = true
             panel.contentView = NSHostingView(rootView: UpdateProgressView(updates: self))
             panel.center()
             window = panel
         }
+        resizeWindow()
         window?.title = "Dock Enhanced"
         if actions.isEmpty { window?.styleMask.remove(.closable) } else { window?.styleMask.insert(.closable) }
         if activate { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
         else { window?.orderFront(nil) }
+    }
+    private func resizeWindow() {
+        guard let window else { return }
+        var frame = window.frame
+        let height = window.frameRect(forContentRect: CGRect(x: 0, y: 0, width: 440, height: panelHeight)).height
+        frame.origin.y += frame.height - height
+        frame.size.height = height
+        window.setFrame(frame, display: true)
     }
     func choose(_ action: UpdateAction) {
         window?.orderOut(nil)
@@ -205,21 +235,64 @@ struct UpdateAction: Identifiable {
 private struct UpdateProgressView: View {
     @ObservedObject var updates: ApplicationUpdates
     @ObservedObject private var localization = Localization.shared
+    private var upToDate: Bool { updates.titleKey == "已是最新版本" }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(localization.text(updates.titleKey)).font(.title2).bold()
-            if !updates.offeredVersion.isEmpty { Text("Dock Enhanced " + updates.offeredVersion).font(.headline) }
-            Text(localization.text(updates.messageKey)).fixedSize(horizontal: false, vertical: true)
-            if let progress = updates.progress { ProgressView(value: progress) }
+            HStack(alignment: .top, spacing: 16) {
+                Image(nsImage: updates.applicationIcon)
+                    .resizable().interpolation(.high).frame(width: 56, height: 56)
+                    .overlay(alignment: .bottomTrailing) {
+                        if upToDate {
+                            Image(systemName: "checkmark.circle.fill")
+                                .symbolRenderingMode(.palette).foregroundStyle(.white, .green)
+                                .font(.system(size: 18)).background(.background, in: Circle())
+                                .offset(x: 3, y: 3)
+                        }
+                    }
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(localization.text(updates.titleKey)).font(.system(size: 17, weight: .semibold))
+                    Text("Dock Enhanced " + (updates.offeredVersion.isEmpty ? updates.currentVersion : updates.offeredVersion))
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    if !updates.messageKey.isEmpty {
+                        Text(localization.text(updates.messageKey))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if updates.isBusy {
+                if let progress = updates.progress { ProgressView(value: progress) }
+                else { ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .leading) }
+            }
             if !updates.errorDetail.isEmpty {
-                ScrollView { Text(updates.errorDetail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }.frame(maxHeight: 70)
+                DisclosureGroup(localization.text("详细信息"), isExpanded: $updates.showErrorDetails) {
+                    ScrollView {
+                        Text(updates.errorDetail).font(.system(size: 11)).foregroundStyle(.secondary)
+                            .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(height: 76)
+                }.font(.system(size: 11))
             }
             Spacer(minLength: 0)
-            HStack {
-                ForEach(updates.actions) { action in
-                    Button(localization.text(action.key)) { updates.choose(action) }
+            Divider()
+            HStack(spacing: 8) {
+                if updates.actions.count > 2, let last = updates.actions.last {
+                    Button(localization.text(last.key)) { updates.choose(last) }
+                        .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-            }
-        }.padding(24).frame(width: 480, height: 300)
+                Spacer(minLength: 0)
+                if updates.actions.count > 1 {
+                    let secondary = updates.actions[1]
+                    Button(localization.text(secondary.key)) { updates.choose(secondary) }
+                        .buttonStyle(.bordered)
+                }
+                if let primary = updates.actions.first {
+                    Button(localization.text(primary.key)) { updates.choose(primary) }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                }
+            }.controlSize(.regular)
+        }
+        .padding(.horizontal, 24).padding(.vertical, 20)
+        .frame(width: 440, height: updates.panelHeight, alignment: .topLeading)
     }
 }
