@@ -2,7 +2,7 @@ import SwiftUI
 
 enum PreviewPreferences {
     static var hoverDelay: Double {
-        let value = UserDefaults.standard.object(forKey: "hoverDelay") as? Double ?? 0.85
+        let value = UserDefaults.standard.object(forKey: "hoverDelay") as? Double ?? 0.40
         return min(1.5, max(0.4, value))
     }
 }
