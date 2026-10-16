@@ -45,16 +45,21 @@ final class NativeWindowSwitcher {
     private var screenObserver: NSObjectProtocol?
     private let controller: WindowController
     private let applicationFilter: (NSRunningApplication) -> Bool
+    private let screenVisibleFrame: (NSScreen?) -> CGRect
     private var observing = false
     private var lastPointer = CGPoint.zero
 
-    init(controller: WindowController, applicationFilter: @escaping (NSRunningApplication) -> Bool = { _ in true }) {
+    init(controller: WindowController, applicationFilter: @escaping (NSRunningApplication) -> Bool = { _ in true }, screenVisibleFrame: @escaping (NSScreen?) -> CGRect = { $0?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700) }) {
         self.controller = controller
         self.applicationFilter = applicationFilter
+        self.screenVisibleFrame = screenVisibleFrame
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in self?.observeActualFocus() }
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self, let screen = self.sessionScreen else { return }
-            if !NSScreen.screens.contains(where: { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber }) { self.cancel() }
+            guard let currentScreen = NSScreen.screens.first(where: { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber }) else { self.cancel(); return }
+            self.sessionScreen = currentScreen
+            self.panel.prepare(candidates: self.sessionCandidates, screen: currentScreen, availableFrame: self.screenVisibleFrame(currentScreen))
+            self.render()
         }
     }
 
@@ -164,7 +169,11 @@ final class NativeWindowSwitcher {
         guard type == .keyDown else { return false }
         if code == 48, event.flags.contains(.maskCommand), event.flags.intersection([.maskControl, .maskAlternate]).isEmpty {
             if !isSelecting {
-                guard !candidates.isEmpty else { return false }
+                guard !candidates.isEmpty else {
+                    cancel()
+                    swallowedKeys.insert(code)
+                    return true
+                }
                 controller.userChangedWindow()
                 activationGeneration += 1
                 sessionGeneration += 1
@@ -179,12 +188,12 @@ final class NativeWindowSwitcher {
                     let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                     sessionCandidates = snapshot.windows.compactMap { byID[$0] }
                     sessionScreen = screenForCurrentWindow(current)
-                    panel.prepare(candidates: sessionCandidates, screen: sessionScreen)
+                    panel.prepare(candidates: sessionCandidates, screen: sessionScreen, availableFrame: screenVisibleFrame(sessionScreen))
                     // Build native views after returning the input callback, while
                     // the no-flash interval is still running.
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
-                        self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen)
+                        self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen, availableFrame: self.screenVisibleFrame(self.sessionScreen))
                     }
                     let work = DispatchWorkItem { [weak self] in
                         guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
@@ -306,7 +315,7 @@ final class NativeWindowSwitcher {
             if !isSelecting { endPresentation() }
             return
         }
-        panel.show(candidates: sessionCandidates, selected: snapshot.selected, screen: sessionScreen)
+        panel.show(candidates: sessionCandidates, selected: snapshot.selected, screen: sessionScreen, availableFrame: screenVisibleFrame(sessionScreen))
     }
 }
 
@@ -387,36 +396,41 @@ private final class SwitcherCard: NSView {
     }
 }
 
-final class WindowSwitcherPanel {
+private func makeSwitcherPanel(title: String, ignoresMouseEvents: Bool = false) -> NSPanel {
     let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    panel.level = .popUpMenu
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.hasShadow = true
+    panel.hidesOnDeactivate = false
+    panel.isReleasedWhenClosed = false
+    panel.ignoresMouseEvents = ignoresMouseEvents
+    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    panel.setAccessibilityTitle(title)
+    return panel
+}
+
+final class WindowSwitcherPanel {
+    let panel = makeSwitcherPanel(title: "窗口切换")
     private var cards: [SwitcherWindowID: SwitcherCard] = [:]
     private var images: [SwitcherWindowID: NSImage] = [:]
     private var scroll: NSScrollView?
     private(set) var columns = 1
     private(set) var windowIDs: [SwitcherWindowID] = []
     private var selected: SwitcherWindowID?
+    private var layoutFrame: CGRect?
 
-    init() {
-        panel.level = .popUpMenu
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.setAccessibilityTitle("窗口切换")
-    }
-
-    func prepare(candidates: [SwitcherCandidate], screen: NSScreen?) {
-        let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+    func prepare(candidates: [SwitcherCandidate], screen: NSScreen?, availableFrame: CGRect? = nil) {
+        let available = availableFrame ?? screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
         columns = max(1, min(candidates.count, Int((available.width - 48) / 244)))
     }
 
-    func prepareContent(candidates: [SwitcherCandidate], screen: NSScreen?) {
+    func prepareContent(candidates: [SwitcherCandidate], screen: NSScreen?, availableFrame: CGRect? = nil) {
         guard !candidates.isEmpty else { return }
         windowIDs = candidates.map(\.id)
-        prepare(candidates: candidates, screen: screen)
-        let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+        prepare(candidates: candidates, screen: screen, availableFrame: availableFrame)
+        let available = availableFrame ?? screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+        layoutFrame = available
         let rows = (candidates.count + columns - 1) / columns
         let documentHeight = CGFloat(rows) * 200 - 10
         let size = CGSize(width: CGFloat(columns) * 244 + 14, height: min(available.height - 64, documentHeight + 24))
@@ -441,11 +455,12 @@ final class WindowSwitcherPanel {
         panel.contentView = makeWindowPreviewBackground(content: content)
     }
 
-    func show(candidates: [SwitcherCandidate], selected: SwitcherWindowID, screen: NSScreen?) {
+    func show(candidates: [SwitcherCandidate], selected: SwitcherWindowID, screen: NSScreen?, availableFrame: CGRect? = nil) {
         guard !candidates.isEmpty else { hide(); return }
         let wasVisible = panel.isVisible
-        let rebuilt = windowIDs != candidates.map(\.id)
-        if rebuilt { prepareContent(candidates: candidates, screen: screen) }
+        let available = availableFrame ?? screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+        let rebuilt = windowIDs != candidates.map(\.id) || layoutFrame != available
+        if rebuilt { prepareContent(candidates: candidates, screen: screen, availableFrame: availableFrame) }
         for candidate in candidates { cards[candidate.id]?.update(candidate: candidate) }
         for (id, card) in cards { card.select(id == selected) }
         if self.selected != selected || !wasVisible || rebuilt, let card = cards[selected] { card.scrollToVisible(card.bounds) }
@@ -478,22 +493,13 @@ final class WindowSwitcherPanel {
         images = [:]
         for card in cards.values { card.update(image: nil) }
     }
-    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; scroll = nil; selected = nil }
+    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; scroll = nil; selected = nil; layoutFrame = nil }
 }
 
 /// Nonactivating, bounded feedback that never substitutes another window.
 final class WindowSwitcherFailureNotice {
-    let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    let panel = makeSwitcherPanel(title: "无法切换到此窗口，请重试", ignoresMouseEvents: true)
     init() {
-        panel.level = .popUpMenu
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.setAccessibilityTitle("无法切换到此窗口，请重试")
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 58))
         let label = NSTextField(labelWithString: "无法切换到此窗口，请重试")
         label.font = .systemFont(ofSize: 13)

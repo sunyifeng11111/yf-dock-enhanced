@@ -38,6 +38,9 @@ if CommandLine.arguments.contains("--check-settings-visual") { delegate = Settin
 else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-visual"), CommandLine.arguments.count > index + 2 {
     delegate = WindowSwitcherVisualCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
 }
+else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-review"), CommandLine.arguments.count > index + 2 {
+    delegate = WindowSwitcherReviewCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
+}
 else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-recovery"), CommandLine.arguments.count > index + 2 {
     delegate = WindowSwitcherRecoveryCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
 }

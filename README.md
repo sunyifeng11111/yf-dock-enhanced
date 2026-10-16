@@ -99,6 +99,8 @@ swift run --build-system native DockEnhanced --check-window-count com.openai.cod
 
 异常检查入口为 `scripts/check-switcher-native.sh --recovery`：使用实际 AX 窗口和系统输入，检查松键观察丢失、两类监听停用、控制能力丢失／返回、安全输入、窗口关闭／新建、三种确认后的旧恢复取消及失败提示。控制权限丢失在系统查询边界注入，未撤销用户真实权限；安全输入由临时夹具实际开启和关闭。慢 AX 检查只暂停并恢复专用夹具。
 
+`scripts/check-switcher-native.sh --review` 验证空候选时的快捷键消费与不可用时的透传、同屏可用几何变化后的重排，以及重复开关窗口后的身份清理和全屏保留。几何变化仅在系统查询边界注入，不修改真实显示设置；窗口创建／关闭、辅助功能超时和全屏状态使用专用原生夹具。
+
 `scripts/check-switcher-native.sh --visual` 采集专用窗口的真实缩略图，保存单卡、单行、多行、滚动及明暗合成截图；`swift run --build-system native DockEnhanced --check-settings-visual` 实际点击三个设置页与增强开关，在隔离偏好中验证保存与重开。它不启动控制服务或图像消费者，不更改真实权限或登录项。截图范围下方有不透明受控背景，不包含用户窗口。
 
 本次宿主为 macOS 27.2、单个 2× 显示器；真实安全输入、已识别全屏窗口与普通窗口的双向切换已验证。两个普通桌面、物理多显示器、其他系统版本和快捷键工具冲突没有冒充通过。完整结果、基线差异和 62 条用户故事覆盖见 [整体验证记录](.scratch/command-tab-enhancement/validation/05-integrated-validation.md)。
