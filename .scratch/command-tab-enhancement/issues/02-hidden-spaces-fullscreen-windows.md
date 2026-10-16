@@ -6,7 +6,7 @@ Blocked by: 01
 
 Status: ready-for-agent
 
-Resolution: incomplete — cold-start full-screen discovery gap and outstanding ordinary-desktop / multi-display validation
+Resolution: pending scope confirmation — cold-start full-screen discovery gap; ordinary-desktop / multi-display validation outstanding
 
 ## Acceptance criteria
 
