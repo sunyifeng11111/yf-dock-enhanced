@@ -165,7 +165,7 @@ final class PreviewPanel {
         }
         scroll.documentView = document
         content.addSubview(scroll)
-        panel.contentView = makeBackground(content: content)
+        panel.contentView = makeWindowPreviewBackground(content: content)
         let finalFrame = panel.frame
         if !wasPresented {
             panel.alphaValue = 0
@@ -182,24 +182,6 @@ final class PreviewPanel {
         }
     }
 
-    private func makeBackground(content: NSView) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: content.frame)
-            glass.style = .regular
-            glass.cornerRadius = 32
-            glass.contentView = content
-            return glass
-        }
-        let blur = NSVisualEffectView(frame: content.frame)
-        blur.material = .popover
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = 32
-        blur.layer?.masksToBounds = true
-        blur.addSubview(content)
-        return blur
-    }
 
     func updateImages(_ images: PreviewImages) {
         for card in cards { card.update(image: images.cache[card.snapshot.key], icon: app?.icon) }
@@ -240,3 +222,22 @@ final class PreviewPanel {
         }
     }
 }
+
+func makeWindowPreviewBackground(content: NSView) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: content.frame)
+            glass.style = .regular
+            glass.cornerRadius = 32
+            glass.contentView = content
+            return glass
+        }
+        let blur = NSVisualEffectView(frame: content.frame)
+        blur.material = .popover
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.cornerRadius = 32
+        blur.layer?.masksToBounds = true
+        blur.addSubview(content)
+        return blur
+    }
