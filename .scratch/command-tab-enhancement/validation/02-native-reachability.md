@@ -4,7 +4,7 @@
 
 ## Implementation and test boundary
 
-`WindowController.reveal` accepts an exact live AX identity, explicitly unhides its owner and independently restores minimization. It refreshes the target and retries requests for at most 21 checks at 100 ms intervals. Completion reports observed foreground PID + unhidden owner + nonminimized target + CFEqual AXFocusedWindow. A new request/user activity invalidates pending work. A missing exact target fails before activating its application.
+`WindowController.reveal` accepts an exact live AX identity, explicitly unhides its owner and independently restores minimization. It refreshes the target and retries requests for at most 21 checks at 100 ms intervals. Completion reports observed foreground PID + unhidden owner + nonminimized target + CFEqual AXFocusedWindow. A new request/user activity invalidates pending work. A missing exact target fails before activating its application. Initial validation reads only the selected element’s actual PID, live role and frame; it does not scan every window inside the original Dock mouse callback. The closed-target native scenario was rerun successfully with this bounded guard after integrating tickets 03 and 04.
 
 AXWindows can omit a valid ordinary window while the same application is full screen. Inventory now also rechecks exact AX elements observed earlier in this utility run; live role, frame, minimization and full-screen state are read again. Entries are never recovered by title or geometry. The existing Dock full-screen native fallback remains unchanged.
 

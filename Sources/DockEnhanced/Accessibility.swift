@@ -241,11 +241,18 @@ final class WindowController {
     func reveal(_ window: AppWindow, app: NSRunningApplication, completion: ((Bool) -> Void)? = nil) -> Bool {
         cancelDeferredReveal()
         let generation = revealGeneration
+        var ownerPID: pid_t = 0
         guard !app.isTerminated,
-              let current = windows(of: app).first(where: { $0.key == window.key }) else {
+              AXUIElementGetPid(window.element, &ownerPID) == .success, ownerPID == app.processIdentifier,
+              (AX.value(window.element, kAXRoleAttribute) as String?) == kAXWindowRole,
+              let frame = AX.rect(window.element), frame.width > 1, frame.height > 1 else {
             completion?(false)
             return false
         }
+        // The Dock also uses this entry point from its mouse callback. Validate
+        // only the exact supplied element here; full inventory refresh/retries
+        // run in the deferred completion path rather than scanning inside a tap.
+        let current = window
         // Hiding is application-wide; it is independent of a window's minimized
         // state. Public activation often unhides implicitly, but request both
         // operations explicitly rather than relying on that incidental behavior.
