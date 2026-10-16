@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var helpWindow: NSWindow?
     let preferences = SettingsModel()
     let loginItem = LoginItem()
+    let updates = ApplicationUpdates()
     private var permissionTimer: Timer?
     private var languageObserver: NSObjectProtocol?
 
@@ -39,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let help = NSMenuItem(title: L("设置…"), action: #selector(showHelp), keyEquivalent: "")
         help.target = self
         menu.addItem(help)
+        let update = NSMenuItem(title: L("检查更新…"), action: #selector(checkForUpdates), keyEquivalent: "")
+        update.target = self
+        menu.addItem(update)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L("退出 Dock Enhanced"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -64,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refreshPermissions() }
         refreshPermissions()
+        updates.start()
         let needsPermissions = preferences.anyFeatureEnabled &&
             (!AXIsProcessTrusted() || (preferences.previewEnabled && !CGPreflightScreenCaptureAccess()))
         // Manual launches always provide a settings entry, including with no status
@@ -98,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switcherItem?.title = L("Command+Tab 增强")
         for item in statusItem?.menu?.items ?? [] {
             if item.action == #selector(showHelp) { item.title = L("设置…") }
+            if item.action == #selector(checkForUpdates) { item.title = L("检查更新…") }
             if item.action == #selector(quit) { item.title = L("退出 Dock Enhanced") }
         }
         preferences.switcherAvailable = service.switcherAvailable
@@ -113,6 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleSwitcher() { preferences.switcherEnabled.toggle() }
     @objc private func toggleClick() { preferences.clickEnabled.toggle() }
 
+    @objc private func checkForUpdates() { updates.checkNow() }
+
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc func showHelp() {
@@ -125,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()
-        window.contentView = NSHostingView(rootView: SettingsView(model: preferences, loginItem: loginItem,
+        window.contentView = NSHostingView(rootView: SettingsView(model: preferences, loginItem: loginItem, updates: updates,
             requestAccessibility: { [weak self] in self?.requestAccessibility() },
             requestCapture: { [weak self] in self?.requestCapture() }))
         helpWindow = window

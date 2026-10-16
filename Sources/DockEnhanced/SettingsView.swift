@@ -92,14 +92,16 @@ struct SettingsView: View {
     @ObservedObject private var localization: Localization
     @ObservedObject var model: SettingsModel
     @ObservedObject var loginItem: LoginItem
+    @ObservedObject var updates: ApplicationUpdates
     let requestAccessibility: () -> Void
     let requestCapture: () -> Void
     @ViewState private var page = SettingsPage.dock
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(model: SettingsModel, loginItem: LoginItem, requestAccessibility: @escaping () -> Void, requestCapture: @escaping () -> Void) {
+    init(model: SettingsModel, loginItem: LoginItem, updates: ApplicationUpdates = ApplicationUpdates(), requestAccessibility: @escaping () -> Void, requestCapture: @escaping () -> Void) {
         self.model = model
         self.loginItem = loginItem
+        self.updates = updates
         self.localization = model.localization
         self.requestAccessibility = requestAccessibility
         self.requestCapture = requestCapture
@@ -248,6 +250,27 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 Text(L("切换后立即生效，无需重新启动。"))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
+            }.padding(16).settingsGroup()
+        }
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(L("软件更新"))
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(L("自动检查更新"), isOn: $updates.automaticChecks)
+                    .toggleStyle(.switch).controlSize(.small)
+                Text(L("每 24 小时检查正式版；仅在你确认后下载、安装并重启。"))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                HStack {
+                    Text(L(updates.statusKey)).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(L("检查更新…")) { updates.checkNow() }
+                        .disabled(!updates.canCheck).controlSize(.small)
+                }
+                if let lastCheck = updates.lastCheck {
+                    Text(L("上次检查：") + lastCheck.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+                Button(L("前往下载")) { NSWorkspace.shared.open(ApplicationUpdates.releasePage) }
+                    .buttonStyle(.link).font(.system(size: 11))
             }.padding(16).settingsGroup()
         }
         VStack(alignment: .leading, spacing: 8) {

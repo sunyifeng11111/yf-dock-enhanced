@@ -15,7 +15,7 @@ Smoother window switching on macOS.
 
 Dock Enhanced is a native macOS window utility. Hover over a Dock icon to preview and select individual windows, click the foreground app’s icon to minimize or restore its most recently used window, and use `⌘ Tab` to switch directly between windows across apps.
 
-It runs in the background without a Dock icon of its own. Each enhancement can be enabled independently. Built with Swift, AppKit, and SwiftUI, with no third-party library dependencies.
+It runs in the background without a Dock icon of its own. Each enhancement can be enabled independently. Built with Swift, AppKit, and SwiftUI, with Sparkle handling authenticated in-app updates.
 
 ## Features
 
@@ -84,7 +84,7 @@ Open settings from the menu bar. The three pages cover:
 
 - **Dock Features (Dock 功能)**: Toggle hover previews and click-to-minimize/restore independently, and adjust the preview delay.
 - **Window Switching (窗口切换)**: Toggle Command+Tab enhancement and check shortcut and thumbnail availability. Turning it off restores the system Command+Tab behavior.
-- **General (通用)**: Choose the app language, and manage launch at login, menu bar icon visibility, and system permissions.
+- **General (通用)**: Choose the app language, manage updates, launch at login, menu bar visibility, and system permissions.
 
 If you hide the menu bar icon, search for `Dock Enhanced` in Spotlight or reopen it from Applications to access settings. The bottom of the settings sidebar includes a quit button.
 
@@ -92,9 +92,17 @@ If you hide the menu bar icon, search for `Dock Enhanced` in Spotlight or reopen
 
 Choose **Settings → General → Language → App Language** to switch between **English** and **简体中文**. The change applies immediately to settings, the menu bar, and app-owned preview and switcher messages, and is saved for the next launch. On first launch, Chinese system languages use Simplified Chinese; other system languages use English. App names, window titles, and macOS permission dialogs keep their original or system language.
 
+### In-app updates
+
+Starting with **0.6.7**, choose **Settings → General → Software Updates** to manage automatic checks, see update status, or check manually. The menu bar also includes **Check for Updates…**. Automatic checking is on by default and runs every 24 hours; only stable releases compatible with your system are offered. You can turn it off and still check manually.
+
+When an update is found, choose **Download and Update**, **Later**, or **Skip This Version**. Downloads begin only after you approve; the app then verifies the update, installs it, and restarts with your settings preserved. Failed background checks stay quiet. Interactive failures offer retry and a manual download link.
+
+**Users on 0.6.6 or earlier need to install 0.6.7 manually once.** Quit the app and replace it in Applications. Do not update while running directly from a DMG or a privacy-protected Documents folder. macOS may request administrator authorization if replacement needs it.
+
 ## Privacy and compatibility
 
-- **Local processing**: The app makes no network requests. Thumbnails stay in memory, with a maximum of 64 cached images. Window titles and usage history are not written to disk. Stopping image services, revoking Screen Recording permission, or quitting clears the image cache.
+- **Local window processing**: Window features work locally. Update checks fetch a signed feed over HTTPS, and approved updates download from GitHub and its delivery network. No usage analytics, window content, titles, typed text, or thumbnails are uploaded. Thumbnails stay in memory, with a maximum of 64 cached images. Window titles and usage history are not written to disk. Stopping image services, revoking Screen Recording permission, or quitting clears the image cache.
 - **Minimized windows**: Previews use the last cached image. If none is available, they show the app icon and window title.
 - **Native Dock interactions**: Right-clicking, dragging, and clicks with modifier keys retain system behavior. Click-to-minimize does not handle full-screen windows or windows that cannot be minimized.
 - **Shortcut availability**: The app leaves system Command+Tab in place when control permissions are missing, event monitoring is unavailable, or Secure Input is active. Shortcut handling does not read or record typed text.
@@ -102,6 +110,8 @@ Choose **Settings → General → Language → App Language** to switch between 
 - **Compatibility coverage**: Accessibility support varies between apps. Multiple monitors, different Dock positions, Dock auto-hide, and multiple regular desktops still need further validation.
 
 ## Build from source
+
+Release maintainers: see [update publishing and key backups](docs/updates.md).
 
 You need a Swift 6 toolchain, macOS Command Line Tools, and Python 3 for the build script. Clone the repository and build:
 

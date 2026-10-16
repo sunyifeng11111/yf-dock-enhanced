@@ -1,0 +1,71 @@
+#if DEBUG
+import AppKit
+import Sparkle
+
+@MainActor
+func checkApplicationUpdates() -> Int32 {
+    _ = NSApplication.shared
+    NSApp.setActivationPolicy(.accessory)
+    let suite = "dev.yifeng.DockEnhanced.update-check." + UUID().uuidString
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var count = 0, failures = 0
+    func require(_ condition: Bool, _ message: String) {
+        count += 1
+        if !condition { failures += 1 }
+        print("\(condition ? "PASS" : "FAIL"): \(message)")
+    }
+    let updates = ApplicationUpdates(defaults: defaults)
+    defer { updates.dismissUpdateInstallation() }
+    require(updates.automaticChecks, "automatic checking defaults on")
+    updates.automaticChecks = false
+    require(!ApplicationUpdates(defaults: defaults).automaticChecks, "disabled automatic checks persist without disabling the manual control")
+    updates.automaticChecks = true
+    require(ApplicationUpdates(defaults: defaults).automaticChecks, "automatic checking can be re-enabled")
+    var cancelled = 0
+    updates.showUserInitiatedUpdateCheck { cancelled += 1 }
+    require(updates.statusKey == "正在检查更新…" && updates.actions.count == 1, "manual check presents cancellable progress")
+    updates.choose(updates.actions[0])
+    require(cancelled == 1, "cancel invokes Sparkle cancellation exactly once")
+    updates.showDownloadInitiated { cancelled += 1 }
+    updates.showDownloadDidReceiveExpectedContentLength(100)
+    updates.showDownloadDidReceiveData(ofLength: 25)
+    require(updates.progress == 0.25, "download progress reflects received bytes")
+    updates.showDownloadDidReceiveData(ofLength: 200)
+    require(updates.progress == 1, "unexpected content lengths do not overflow progress")
+    updates.choose(updates.actions[0])
+    require(cancelled == 2, "download cancellation is forwarded")
+    updates.showDownloadDidStartExtractingUpdate()
+    require(updates.actions.isEmpty, "extraction does not expose unsafe cancellation")
+    var installChoice: SPUUserUpdateChoice?
+    updates.showReady(toInstallAndRelaunch: { installChoice = $0 })
+    require(installChoice == .install, "explicitly approved download proceeds to installation and relaunch")
+    var acknowledgements = 0
+    updates.showUpdaterError(NSError(domain: "ControlledUpdateFailure", code: 1)) { acknowledgements += 1 }
+    require(updates.actions.map(\.key) == ["重试", "前往下载", "关闭"], "failure offers retry and manual fallback")
+    updates.choose(updates.actions.last!)
+    require(acknowledgements == 1, "closing an error finishes the failed Sparkle session")
+    require(updates.allowedChannels(for: SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: updates, delegate: nil)).isEmpty, "only the stable default channel is selected")
+    let keys = ["软件更新", "自动检查更新", "检查更新…", "下载并更新", "稍后", "跳过此版本", "更新失败，仍可使用当前版本"]
+    require(keys.allSatisfy { Localization.text($0, language: .english) != $0 }, "update controls have English translations")
+    if let index = CommandLine.arguments.firstIndex(of: "--engine-app"), CommandLine.arguments.count > index + 1,
+       let bundle = Bundle(path: CommandLine.arguments[index + 1]) {
+        let engineDefaults = UserDefaults(suiteName: bundle.bundleIdentifier!)!
+        engineDefaults.set(false, forKey: "SUEnableAutomaticChecks")
+        defer { engineDefaults.removePersistentDomain(forName: bundle.bundleIdentifier!) }
+        let live = ApplicationUpdates(bundle: bundle, defaults: engineDefaults)
+        live.start()
+        require(live.canCheck && live.statusKey != "更新检查失败", "packaged Sparkle engine starts with signed-feed verification and manual checking available")
+        require(!live.automaticChecks && live.lastCheck == nil, "disabled scheduling does not trigger a startup network check")
+        if !live.canCheck { print("ENGINE ERROR: \(live.errorDetail)") }
+    }
+    if let index = CommandLine.arguments.firstIndex(of: "--read-only-app"), CommandLine.arguments.count > index + 1,
+       let bundle = Bundle(path: CommandLine.arguments[index + 1]) {
+        let readOnly = ApplicationUpdates(bundle: bundle, defaults: defaults)
+        readOnly.start()
+        require(!readOnly.canCheck && readOnly.statusKey == "请先将应用移入应用程序文件夹", "disk-image app cannot initiate an in-place update")
+    }
+    print("\(count) update UI checks, \(failures) failures")
+    return failures == 0 ? 0 : 1
+}
+#endif

@@ -33,3 +33,14 @@ The application currently receiving the user's input.
 
 **Background application**:
 A running application that is not currently receiving the user's input.
+
+**Update check**:
+A lookup for a newer application release; it does not itself replace or restart the installed application.
+_Avoid_: Update installation
+
+**In-app update**:
+An application upgrade that downloads a new release, replaces the installed application, and restarts it through the application's update flow.
+_Avoid_: Download-page redirect
+
+**Stable release**:
+A published application release intended for normal use, distinct from a draft or prerelease.

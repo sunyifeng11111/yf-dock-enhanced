@@ -2,6 +2,11 @@ import AppKit
 import ApplicationServices
 
 #if DEBUG
+if CommandLine.arguments.contains("--check-application-updates") {
+    _ = NSApplication.shared
+    Task { @MainActor in exit(checkApplicationUpdates()) }
+    RunLoop.main.run()
+}
 if CommandLine.arguments.contains("--check-localization") { exit(checkLocalization()) }
 if CommandLine.arguments.contains("--diagnose") {
     print("Accessibility=\(AXIsProcessTrusted()) ScreenCapture=\(CGPreflightScreenCaptureAccess())")
