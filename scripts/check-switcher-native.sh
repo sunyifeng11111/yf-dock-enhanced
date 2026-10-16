@@ -22,4 +22,4 @@ with open(sys.argv[1], 'wb') as f:
 PY
     codesign --force --sign - --identifier "dev.yifeng.DockEnhancedSwitcherFixture$name" "$fixture_dir"
 done
-"$binary_dir/DockEnhanced" --check-command-tab "$project_dir/.build/Switcher Fixture A.app" "$project_dir/.build/Switcher Fixture B.app"
+"$binary_dir/DockEnhanced" --check-command-tab "$project_dir/.build/Switcher Fixture A.app" "$project_dir/.build/Switcher Fixture B.app" "$@"

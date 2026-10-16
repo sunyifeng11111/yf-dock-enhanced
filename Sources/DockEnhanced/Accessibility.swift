@@ -48,6 +48,12 @@ private final class WindowIdentityRegistry {
         return WindowKey(pid: pid, id: next)
     }
 
+    func knownElements(for pid: pid_t) -> [AXUIElement] {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[pid, default: []].map(\.0)
+    }
+
     func forgetTerminatedApps(_ live: Set<pid_t>) {
         lock.lock()
         defer { lock.unlock() }
@@ -136,7 +142,11 @@ final class WindowController {
     func windows(of app: NSRunningApplication) -> [AppWindow] {
         let owner = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(owner, 0.06)
-        let elements: [AXUIElement] = AX.value(owner, kAXWindowsAttribute) ?? []
+        let reported: [AXUIElement] = AX.value(owner, kAXWindowsAttribute) ?? []
+        // AppKit can omit ordinary windows from AXWindows while that application
+        // is full screen. Keep previously identified exact elements discoverable;
+        // every retained element still has to pass live role/frame/state reads.
+        let elements = reported + WindowIdentityRegistry.shared.knownElements(for: app.processIdentifier)
         let focused: AXUIElement? = AX.value(owner, kAXFocusedWindowAttribute)
         var seen: [AXUIElement] = []
         let windows = elements.compactMap { element -> AppWindow? in
@@ -224,50 +234,58 @@ final class WindowController {
         }
     }
 
+    /// Returns whether an exact-target request was accepted. Completion reports
+    /// observed exact focus, never just AXRaise/app-activation request success.
+    /// Cancellation invalidates deferred work and intentionally omits completion.
     @discardableResult
-    func reveal(_ window: AppWindow, app: NSRunningApplication) -> Bool {
+    func reveal(_ window: AppWindow, app: NSRunningApplication, completion: ((Bool) -> Void)? = nil) -> Bool {
         cancelDeferredReveal()
         let generation = revealGeneration
-        let minimized: Bool = AX.value(window.element, kAXMinimizedAttribute) ?? window.state.minimized
-        if minimized && !AX.set(window.element, kAXMinimizedAttribute, false) { return false }
-        if minimized {
-            recent[app.processIdentifier] = window.key.id
-            minimizedByClick.removeValue(forKey: app.processIdentifier)
-            finishRestore(window, app: app, generation: generation, attempt: 0)
-            return true
+        guard !app.isTerminated,
+              let current = windows(of: app).first(where: { $0.key == window.key }) else {
+            completion?(false)
+            return false
         }
-        let raised = bringForward(window, app: app)
-        recent[app.processIdentifier] = window.key.id
+        // Hiding is application-wide; it is independent of a window's minimized
+        // state. Public activation often unhides implicitly, but request both
+        // operations explicitly rather than relying on that incidental behavior.
+        if app.isHidden {
+            app.unhide()
+            let owner = AXUIElementCreateApplication(app.processIdentifier)
+            AXUIElementSetMessagingTimeout(owner, 0.06)
+            _ = AX.set(owner, kAXHiddenAttribute, false)
+        }
+        let minimized: Bool = AX.value(current.element, kAXMinimizedAttribute) ?? current.state.minimized
+        if minimized && !AX.set(current.element, kAXMinimizedAttribute, false) {
+            completion?(false)
+            return false
+        }
         minimizedByClick.removeValue(forKey: app.processIdentifier)
-        return raised
+        _ = bringForward(current, app: app)
+        finishRestore(current, app: app, generation: generation, attempt: 0, completion: completion)
+        return true
     }
 
-    private func finishRestore(_ window: AppWindow, app: NSRunningApplication, generation: Int, attempt: Int) {
+    private func finishRestore(_ window: AppWindow, app: NSRunningApplication, generation: Int,
+                               attempt: Int, completion: ((Bool) -> Void)?) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self, generation == self.revealGeneration, !app.isTerminated else { return }
-            // A restored window can temporarily disappear from AXWindows while the
-            // Dock animation runs. Raising it then may time out even after unminimize
-            // succeeded. Refresh the element and retry outside the mouse event tap.
-            let current = self.windows(of: app).first { $0.key == window.key && !$0.state.minimized }
-            if current != nil, !app.isActive {
-                let owner = AXUIElementCreateApplication(app.processIdentifier)
-                AXUIElementSetMessagingTimeout(owner, 0.06)
-                _ = AX.set(owner, kAXFrontmostAttribute, true)
-                app.activate(options: [])
-                if attempt < 12 { self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1) }
-                return
-            }
-            if let current, self.bringForward(current, app: app) {
+            guard let self, generation == self.revealGeneration else { return }
+            guard !app.isTerminated else { completion?(false); return }
+            // Full-screen/Space changes and restore animations are asynchronous.
+            // Refresh by exact AX identity and bound retries for every window,
+            // including already-unminimized windows of the current application.
+            let current = self.windows(of: app).first { $0.key == window.key }
+            if let current, self.isFocused(current, app: app) {
                 self.recent[app.processIdentifier] = current.key.id
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                    guard let self, generation == self.revealGeneration, attempt < 12 else { return }
-                    if !self.isFocused(current, app: app) {
-                        self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1)
-                    }
-                }
+                completion?(true)
                 return
             }
-            if attempt < 12 { self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1) }
+            guard attempt < 20 else { completion?(false); return }
+            if let current {
+                if app.isHidden { app.unhide() }
+                _ = self.bringForward(current, app: app)
+            }
+            self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1, completion: completion)
         }
     }
 
