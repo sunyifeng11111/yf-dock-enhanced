@@ -1,0 +1,20 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Dock Enhanced</title>
+        <item>
+            <title>0.6.7</title>
+            <pubDate>Fri, 16 Oct 2026 21:03:22 +0800</pubDate>
+            <link>https://github.com/sunyifeng11111/yf-dock-enhanced/releases</link>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>0.6.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/sunyifeng11111/yf-dock-enhanced/releases/download/v0.6.7/Dock-Enhanced-0.6.7-macOS-arm64.dmg" length="2642818" type="application/octet-stream" sparkle:edSignature="28uzIFDItfmSLugjSC6VUPOPxcYPnjNFFGtCWCjanrWxJs6oeUoqoIGHWWzPbEqzpq/xUWUlv2VYpqBrSyBVBw=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: qj3tniePrslOTPQYzBmXfNsV1LnOPnSQXFOg+O97ite7jz4WPKAsl6lvH8d/97NsU6zhSArFZiMz1SCGKHR9DA==
+length: 1242
+-->
