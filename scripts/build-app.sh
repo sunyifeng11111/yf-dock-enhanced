@@ -7,7 +7,9 @@ swift build --build-system native --configuration "$build_mode" --product DockEn
 binary_dir="$(swift build --build-system native --configuration "$build_mode" --show-bin-path)"
 app_dir="$project_dir/dist/Dock Enhanced.app"
 mkdir -p "$app_dir/Contents/MacOS"
+mkdir -p "$app_dir/Contents/Resources"
 cp "$binary_dir/DockEnhanced" "$app_dir/Contents/MacOS/DockEnhanced"
+cp "$project_dir/assets/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
 python3 - "$app_dir/Contents/Info.plist" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], 'wb') as f:
@@ -17,8 +19,9 @@ with open(sys.argv[1], 'wb') as f:
         'CFBundleName': 'Dock Enhanced',
         'CFBundleDisplayName': 'Dock Enhanced',
         'CFBundlePackageType': 'APPL',
-        'CFBundleShortVersionString': '0.2.3',
-        'CFBundleVersion': '5',
+        'CFBundleShortVersionString': '0.3.0',
+        'CFBundleVersion': '6',
+        'CFBundleIconFile': 'AppIcon',
         'LSMinimumSystemVersion': '14.0',
         'LSUIElement': True,
         'NSHighResolutionCapable': True

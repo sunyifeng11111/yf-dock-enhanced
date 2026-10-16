@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var toggleItem: NSMenuItem!
     private var helpWindow: NSWindow?
     let preferences = SettingsModel()
+    let loginItem = LoginItem()
     private var permissionTimer: Timer?
     private var wantsEnabled: Bool { preferences.enabled }
 
@@ -48,12 +49,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) { refreshPermissions() }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showHelp()
+        return true
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         permissionTimer?.invalidate()
         service.stop()
     }
 
     private func refreshPermissions() {
+        loginItem.refresh()
         if wantsEnabled && AXIsProcessTrusted() && !service.running { service.start() }
         preferences.accessibilityGranted = AXIsProcessTrusted()
         preferences.captureGranted = CGPreflightScreenCaptureAccess()
@@ -72,13 +79,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showHelp() {
         if let helpWindow { helpWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); refreshPermissions(); return }
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 624, height: 640),
+        let height = min(744, (NSScreen.main?.visibleFrame.height ?? 808) - 64)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 624, height: height),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = "Dock Enhanced · 设置"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()
-        window.contentView = NSHostingView(rootView: SettingsView(model: preferences,
+        window.contentView = NSHostingView(rootView: SettingsView(model: preferences, loginItem: loginItem,
             requestAccessibility: { [weak self] in self?.requestAccessibility() },
             requestCapture: { [weak self] in self?.requestCapture() }))
         helpWindow = window
