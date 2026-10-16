@@ -32,7 +32,7 @@ All final commands exited 0 after the production changes and extractions:
 | Preferences / image lifecycle | 16 checks / 0 failures: `/tmp/dock-review-preferences.log` |
 | Native shared services | 39 checks passed: `/tmp/dock-review-services.log` |
 | Actual 40-window interaction | Quick MRU round trip, nonactivating delayed panel, geometry/scrolling, stationary pointer, Enter, pointer and outside cancellation passed: `/tmp/dock-review-interaction.log`; panel observed at 127ms with 5ms sampling |
-| Native exact reachability | Existing same-app/cross-app, hidden/minimized, exact completion, warm ordinary/full-screen switching and disabled native fallback passed: `/tmp/dock-review-reachability.log`; accepted cold-start omission and unavailable environments remain explicit |
+| Native window switching | Default switcher check: 50 pass lines covering same-app/cross-app, hidden/minimized, exact completion and disabled native fallback: `/tmp/dock-review-reachability.log`. This invocation did not include `--reachability`; bidirectional full-screen focus evidence is inherited from validation 05, while this review reruns actual full-screen omission/retention in its focused lifecycle check |
 | Debug / release builds | Pass; native script builds and `/tmp/dock-review-release.log` |
 | Source application package | `scripts/build-app.sh release` and strict deep signature verification passed: `/tmp/dock-review-package.log`. `dist/Dock Enhanced.app` is 0.6.0 / build 11, macOS 14 minimum, identifier `dev.yifeng.DockEnhanced`. Installed application was not replaced |
 | Source / scripts | `git diff --check` and zsh syntax checks for both wrappers/shared helper passed |
@@ -44,3 +44,5 @@ The integration coordinator must rebuild or copy the updated source package afte
 The geometry check proves actual AppKit relayout under a changed usable-frame observation; it does not establish real physical display removal or scale changes. No second display, second ordinary desktop, other macOS version, actual permission revocation, third-party shortcut conflict or Reduce Motion enabled matrix was added. The accepted cold-start full-screen discovery limit remains. The previously recorded original Dock runtime intermittent/baseline failures remain disclosed in validation 05; the full original Dock suite was not repeated for these review fixes.
 
 All native fixtures are terminated, isolated control files removed, stopped fixtures resumed, and original exact foreground/pointer restored. No installed app, real preference domain, login registration or system permission was changed. The installed app remains off for the root coordinator to restore after integration.
+
+Integration synchronization: merged the latest integration tip `be9befb` (review documentation only) after implementation/testing; no further production changes were introduced by that merge.
