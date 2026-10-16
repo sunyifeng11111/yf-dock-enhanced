@@ -5,11 +5,13 @@ import DockCore
 
 final class FixtureDelegate: NSObject, NSApplicationDelegate {
     private var windows: [NSWindow] = []
+    private var stateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         let menu = NSMenu()
         let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "隐藏测试窗口", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "退出测试窗口", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let item = NSMenuItem()
         item.submenu = appMenu
@@ -20,6 +22,8 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: 220 + index * 70, y: 250 + index * 45), size: size),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = index == 0 ? "" : "测试窗口 · 绿色"
+            window.setAccessibilityIdentifier("switcher-fixture-\(index)")
+            window.collectionBehavior.insert(.fullScreenPrimary)
             let view = NSView(frame: CGRect(origin: .zero, size: size))
             view.wantsLayer = true
             view.layer?.backgroundColor = (index == 0 ? NSColor.systemPurple : NSColor.systemTeal).cgColor
@@ -43,6 +47,19 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
         helper.orderFront(nil)
         windows.append(helper)
         NSApp.activate(ignoringOtherApps: true)
+        if let index = CommandLine.arguments.firstIndex(of: "--fixture-state"), CommandLine.arguments.count > index + 1 {
+            let url = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            // Fixture-only evidence: public AppKit state, never user window data.
+            stateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                let state = self.windows.prefix(2).enumerated().map { index, window in
+                    ["identifier": "switcher-fixture-\(index)", "number": window.windowNumber, "pid": Int(getpid()),
+                     "onActiveSpace": window.isOnActiveSpace, "visible": window.isVisible,
+                     "minimized": window.isMiniaturized, "fullScreen": window.styleMask.contains(.fullScreen)] as [String: Any]
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: state) { try? data.write(to: url, options: .atomic) }
+            }
+        }
     }
 }
 
