@@ -8,8 +8,14 @@ enum PreviewPreferences {
 }
 
 final class SettingsModel: ObservableObject {
-    @Published var enabled = UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(enabled, forKey: "enabled"); onEnabledChange?(enabled) }
+    // Carry the old master switch into each feature until that feature is customized.
+    @Published var previewEnabled = UserDefaults.standard.object(forKey: "previewEnabled") as? Bool
+        ?? UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(previewEnabled, forKey: "previewEnabled"); onFeaturesChange?() }
+    }
+    @Published var clickEnabled = UserDefaults.standard.object(forKey: "clickEnabled") as? Bool
+        ?? UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(clickEnabled, forKey: "clickEnabled"); onFeaturesChange?() }
     }
     @Published var delay = PreviewPreferences.hoverDelay {
         didSet { UserDefaults.standard.set(delay, forKey: "hoverDelay") }
@@ -17,7 +23,8 @@ final class SettingsModel: ObservableObject {
     @Published var accessibilityGranted = false
     @Published var captureGranted = false
     @Published var running = false
-    var onEnabledChange: ((Bool) -> Void)?
+    var anyFeatureEnabled: Bool { previewEnabled || clickEnabled }
+    var onFeaturesChange: (() -> Void)?
 }
 
 struct SettingsView: View {
@@ -26,7 +33,7 @@ struct SettingsView: View {
     let requestAccessibility: () -> Void
     let requestCapture: () -> Void
 
-    private var status: String { model.running ? "正在运行" : (model.enabled ? "等待授权" : "已暂停") }
+    private var status: String { model.running ? "正在运行" : (model.anyFeatureEnabled ? "等待授权" : "已暂停") }
 
     var body: some View {
         ScrollView {
@@ -54,14 +61,26 @@ struct SettingsView: View {
                 .padding(22).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(colors: [.indigo.opacity(0.13), .cyan.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 22))
 
-                HStack(spacing: 14) {
-                    tile("power", color: .indigo)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("启用 Dock 增强").font(.system(size: 14, weight: .semibold))
-                        Text("点击收起 / 恢复，悬停选择窗口。").font(.system(size: 12)).foregroundStyle(.secondary)
+                VStack(spacing: 14) {
+                    HStack(spacing: 14) {
+                        tile("rectangle.on.rectangle", color: .indigo)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("悬停预览").font(.system(size: 14, weight: .semibold))
+                            Text("停留在 Dock 图标上，预览并选择窗口。").font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("悬停预览", isOn: $model.previewEnabled).labelsHidden().toggleStyle(.switch).tint(.indigo)
                     }
-                    Spacer()
-                    Toggle("启用 Dock 增强", isOn: $model.enabled).labelsHidden().toggleStyle(.switch).tint(.indigo)
+                    Divider()
+                    HStack(spacing: 14) {
+                        tile("cursorarrow.click", color: .blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("点击收起 / 恢复").font(.system(size: 14, weight: .semibold))
+                            Text("点击 Dock 图标收起窗口，再点击恢复。").font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("点击收起 / 恢复", isOn: $model.clickEnabled).labelsHidden().toggleStyle(.switch).tint(.indigo)
+                    }
                 }.padding(16).card()
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -91,7 +110,7 @@ struct SettingsView: View {
                         Spacer()
                         Text(String(format: "%.2f 秒", model.delay)).font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(.indigo)
                     }
-                    Slider(value: $model.delay, in: 0.4...1.5, step: 0.05).tint(.indigo)
+                    Slider(value: $model.delay, in: 0.4...1.5, step: 0.05).tint(.indigo).disabled(!model.previewEnabled)
                     Text("点击或右键后，移开鼠标再悬停，预览才会重新出现。")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }.padding(16).card()
@@ -100,7 +119,7 @@ struct SettingsView: View {
                     Text("必要权限").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                     permission("辅助功能", detail: "用于准确操作你选择的窗口", symbol: "hand.point.up.left", granted: model.accessibilityGranted, action: requestAccessibility)
                     Divider()
-                    permission("屏幕录制", detail: "用于显示真实的窗口缩略图", symbol: "rectangle.on.rectangle", granted: model.captureGranted, action: requestCapture)
+                    permission("屏幕录制", detail: "仅悬停预览需要，用于显示窗口缩略图", symbol: "rectangle.on.rectangle", granted: model.captureGranted, action: requestCapture)
                 }.padding(16).card()
 
                 HStack(alignment: .top, spacing: 8) {

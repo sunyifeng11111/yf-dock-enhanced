@@ -14,6 +14,8 @@ final class DockService {
     let images = PreviewImages()
     let preview = PreviewPanel()
     private(set) var running = false
+    private(set) var previewsEnabled = true
+    private(set) var clickEnabled = true
     var onStatusChanged: (() -> Void)?
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
@@ -39,6 +41,24 @@ final class DockService {
             guard let self else { return }
             self.preview.updateImages(self.images)
         }
+    }
+
+    func configure(previewsEnabled: Bool, clickEnabled: Bool) {
+        if self.clickEnabled != clickEnabled {
+            if let pending { repost(pending.down); self.pending = nil }
+            controller.userChangedWindow()
+        }
+        if self.previewsEnabled != previewsEnabled {
+            hovered = nil
+            hoverPolicy = PreviewHoverPolicy()
+            preview.hide(animated: false)
+            images.clear()
+            lastCapture = .distantPast
+        }
+        self.previewsEnabled = previewsEnabled
+        self.clickEnabled = clickEnabled
+        if previewsEnabled || clickEnabled { start() }
+        else if running { stop() }
     }
 
     @discardableResult
@@ -160,7 +180,7 @@ final class DockService {
             return nil
         }
         guard type == .leftMouseDown || type == .rightMouseDown else { return Unmanaged.passUnretained(event) }
-        guard type == .leftMouseDown, !hasModifiers(event),
+        guard clickEnabled, type == .leftMouseDown, !hasModifiers(event),
               let item = locator.item(at: event.location),
               let windows = prepared[item.app.processIdentifier] else {
             controller.userChangedWindow()
@@ -198,7 +218,7 @@ final class DockService {
                 prepared[app.processIdentifier] = windows
                 if now.timeIntervalSince(lastCapture) > 2 {
                     lastCapture = now
-                    if let recent = controller.recentWindow(of: app, in: windows) { images.refresh([recent]) }
+                    if previewsEnabled, let recent = controller.recentWindow(of: app, in: windows) { images.refresh([recent]) }
                     controller.forgetTerminatedApps()
                     let live = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
                     prepared = prepared.filter { live.contains($0.key) }
@@ -217,9 +237,9 @@ final class DockService {
                 preview.hide()
                 let windows = controller.windows(of: item.app)
                 prepared[item.app.processIdentifier] = windows
-                images.refresh(windows)
+                if previewsEnabled { images.refresh(windows) }
             }
-            if hoverPolicy.allowsPreview(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate,
+            if previewsEnabled, hoverPolicy.allowsPreview(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate,
                                          delay: PreviewPreferences.hoverDelay, menuOpen: contextMenuInteraction),
                let windows = prepared[item.app.processIdentifier] {
                 refreshPreview(item: item, windows: windows)
@@ -233,7 +253,7 @@ final class DockService {
                 preview.hide()
             }
         }
-        if preview.isVisible, now.timeIntervalSince(lastCapture) > 1, let app = preview.app {
+        if previewsEnabled, preview.isVisible, now.timeIntervalSince(lastCapture) > 1, let app = preview.app {
             lastCapture = now
             let windows = controller.windows(of: app)
             prepared[app.processIdentifier] = windows

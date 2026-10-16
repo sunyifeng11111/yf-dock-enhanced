@@ -54,7 +54,10 @@ final class NativeIntegrationCheck {
 
     func run() {
         Task { @MainActor in
-            let previousApp = NSWorkspace.shared.frontmostApplication
+            let foreground = NSWorkspace.shared.frontmostApplication
+            let previousApp = foreground?.bundleIdentifier == "dev.yifeng.DockEnhancedFixture"
+                ? NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.finder" }
+                : foreground
             let previousPointer = quartzPoint(NSEvent.mouseLocation)
             var fixture: NSRunningApplication?
             var result: Int32 = 0
@@ -245,6 +248,7 @@ final class NativeIntegrationCheck {
                         try require(intercepted && keptForeground, "a held intercepted Dock press cancels earlier deferred activation immediately")
                     }
                 }
+                try await checkFeatureSwitches(app)
                 print("PASS: native integration checks complete; preview image: /tmp/dock-enhanced-preview.png")
             } catch {
                 print("FAIL: \(error.localizedDescription)")
@@ -259,6 +263,55 @@ final class NativeIntegrationCheck {
             move(to: previousPointer)
             exit(result)
         }
+    }
+
+    @MainActor private func checkFeatureSwitches(_ app: NSRunningApplication) async throws {
+        for window in service.controller.windows(of: app) { _ = AX.set(window.element, kAXMinimizedAttribute, false) }
+        await pause(0.8)
+        guard let window = service.controller.windows(of: app).first else { throw failure("fixture window disappeared") }
+        _ = service.controller.reveal(window, app: app)
+        await pause(0.5)
+
+        service.configure(previewsEnabled: true, clickEnabled: false)
+        _ = try await hover(app)
+        try require(service.preview.isVisible, "previews work with click control disabled")
+        try await dockClick(app)
+        await pause(0.7)
+        try require(service.controller.windows(of: app).allSatisfy { !$0.state.minimized },
+                    "Dock click retains native behavior when click control is disabled")
+        _ = try await hover(app)
+        guard let selected = service.preview.windowKeys.first else { throw failure("preview-only mode has no selectable windows") }
+        let panel = service.preview.panel.frame
+        click(at: quartzPoint(CGPoint(x: panel.minX + 12 + 117, y: panel.minY + 100)))
+        await pause(0.7)
+        let focused: AXUIElement? = AX.value(AXUIElementCreateApplication(app.processIdentifier), kAXFocusedWindowAttribute)
+        try require(focused.map { Int(CFHash($0)) } == selected.id, "preview selection works with click control disabled")
+
+        service.configure(previewsEnabled: false, clickEnabled: true)
+        try require(!service.preview.isVisible && service.images.cache.isEmpty, "turning previews off dismisses the panel and clears thumbnails")
+        move(to: center(window.frame))
+        await pause(0.4)
+        guard let item = service.locator.item(for: app) else { throw failure("fixture Dock icon disappeared") }
+        move(to: center(item.frame))
+        await pause(1.7)
+        try require(!service.preview.isVisible && service.images.cache.isEmpty, "hovering with previews off does not show or capture thumbnails")
+        try await dockClick(app)
+        await pause(0.7)
+        try require(service.controller.windows(of: app).filter(\.state.minimized).count == 1,
+                    "click control minimizes a window with previews disabled")
+        try await dockClick(app)
+        await pause(0.8)
+        try require(service.controller.windows(of: app).allSatisfy { !$0.state.minimized },
+                    "click control restores a window with previews disabled")
+
+        service.configure(previewsEnabled: false, clickEnabled: false)
+        try require(!service.running && !service.preview.isVisible && service.images.cache.isEmpty, "both features off stops the service")
+        try await dockClick(app)
+        await pause(0.5)
+        try require(service.controller.windows(of: app).allSatisfy { !$0.state.minimized }, "both features off leaves native Dock behavior intact")
+        service.configure(previewsEnabled: true, clickEnabled: true)
+        _ = try await hover(app)
+        try require(service.running && service.preview.isVisible, "enabling both features restarts previews and click handling")
     }
 
     @MainActor private func savePreview(_ panel: NSPanel, path: String) async throws {

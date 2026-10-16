@@ -6,27 +6,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let service = DockService()
     private var statusItem: NSStatusItem!
     private var stateItem: NSMenuItem!
-    private var toggleItem: NSMenuItem!
+    private var previewItem: NSMenuItem!
+    private var clickItem: NSMenuItem!
     private var helpWindow: NSWindow?
     let preferences = SettingsModel()
     let loginItem = LoginItem()
     private var permissionTimer: Timer?
-    private var wantsEnabled: Bool { preferences.enabled }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        preferences.onEnabledChange = { [weak self] enabled in
-            guard let self else { return }
-            if enabled { self.refreshPermissions() } else { self.service.stop(); self.updateStatus() }
-        }
+        preferences.onFeaturesChange = { [weak self] in self?.refreshPermissions() }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "macwindow.on.rectangle", accessibilityDescription: "Dock Enhanced")
         let menu = NSMenu()
         stateItem = NSMenuItem(title: "Dock Enhanced", action: nil, keyEquivalent: "")
         menu.addItem(stateItem)
-        toggleItem = NSMenuItem(title: "启用", action: #selector(toggle), keyEquivalent: "")
-        toggleItem.target = self
-        menu.addItem(toggleItem)
+        previewItem = NSMenuItem(title: "悬停预览", action: #selector(togglePreview), keyEquivalent: "")
+        previewItem.target = self
+        menu.addItem(previewItem)
+        clickItem = NSMenuItem(title: "点击收起 / 恢复", action: #selector(toggleClick), keyEquivalent: "")
+        clickItem.target = self
+        menu.addItem(clickItem)
         let help = NSMenuItem(title: "设置…", action: #selector(showHelp), keyEquivalent: "")
         help.target = self
         menu.addItem(help)
@@ -36,15 +36,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(quit)
         statusItem.menu = menu
         service.onStatusChanged = { [weak self] in self?.updateStatus() }
-        permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refreshPermissions() }
-        refreshPermissions()
         #if DEBUG
         if let index = CommandLine.arguments.firstIndex(of: "--integration-check"), CommandLine.arguments.count > index + 1 {
+            service.configure(previewsEnabled: true, clickEnabled: true)
             NativeIntegrationCheck(service: service, fixtureURL: URL(fileURLWithPath: CommandLine.arguments[index + 1])).run()
             return
         }
         #endif
-        if !AXIsProcessTrusted() || !CGPreflightScreenCaptureAccess() { showHelp() }
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refreshPermissions() }
+        refreshPermissions()
+        if preferences.anyFeatureEnabled && (!AXIsProcessTrusted() || (preferences.previewEnabled && !CGPreflightScreenCaptureAccess())) { showHelp() }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { refreshPermissions() }
@@ -61,19 +62,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshPermissions() {
         loginItem.refresh()
-        if wantsEnabled && AXIsProcessTrusted() && !service.running { service.start() }
+        service.configure(previewsEnabled: preferences.previewEnabled, clickEnabled: preferences.clickEnabled)
         preferences.accessibilityGranted = AXIsProcessTrusted()
         preferences.captureGranted = CGPreflightScreenCaptureAccess()
         updateStatus()
     }
 
     private func updateStatus() {
-        stateItem?.title = service.running ? "Dock Enhanced · 正在运行" : (wantsEnabled ? "Dock Enhanced · 等待权限" : "Dock Enhanced · 已暂停")
-        toggleItem?.state = wantsEnabled ? .on : .off
+        stateItem?.title = service.running ? "Dock Enhanced · 正在运行" : (preferences.anyFeatureEnabled ? "Dock Enhanced · 等待权限" : "Dock Enhanced · 已暂停")
+        previewItem?.state = preferences.previewEnabled ? .on : .off
+        clickItem?.state = preferences.clickEnabled ? .on : .off
         preferences.running = service.running
     }
 
-    @objc private func toggle() { preferences.enabled.toggle() }
+    @objc private func togglePreview() { preferences.previewEnabled.toggle() }
+    @objc private func toggleClick() { preferences.clickEnabled.toggle() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 
