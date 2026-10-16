@@ -63,3 +63,7 @@ Validation record `07-review-fixes.md` accurately distinguishes the injected usa
 
 
 Final findings: Standards — 0 remaining actionable findings; Spec — 0 remaining actionable findings. Original 2 duplication judgments and all 3 P2 concerns are resolved. Environment gaps and original Dock runtime intermittency remain disclosed in validation 05/07.
+
+## Delivery cleanup
+
+The updated 0.6.0/build11 source package is preserved in the primary checkout at `dist/Dock Enhanced.app`; strict deep signature verification passed. All six implementation/review worktrees were archived and removed from the active Git worktree list. The original `/Applications/Dock Enhanced.app` was relaunched without replacing its bundle, prior foreground restored, and no test/fixture process remains. Final tracked work is committed; the user-owned untracked `.vscode/` directory was preserved. No release was published.
