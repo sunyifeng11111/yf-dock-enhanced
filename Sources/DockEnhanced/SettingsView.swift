@@ -20,11 +20,18 @@ final class SettingsModel: ObservableObject {
     @Published var delay = PreviewPreferences.hoverDelay {
         didSet { UserDefaults.standard.set(delay, forKey: "hoverDelay") }
     }
+    @Published var hideMenuBarIcon = UserDefaults.standard.bool(forKey: "hideMenuBarIcon") {
+        didSet {
+            UserDefaults.standard.set(hideMenuBarIcon, forKey: "hideMenuBarIcon")
+            onMenuBarVisibilityChange?(hideMenuBarIcon)
+        }
+    }
     @Published var accessibilityGranted = false
     @Published var captureGranted = false
     @Published var running = false
     var anyFeatureEnabled: Bool { previewEnabled || clickEnabled }
     var onFeaturesChange: (() -> Void)?
+    var onMenuBarVisibilityChange: ((Bool) -> Void)?
 }
 
 struct SettingsView: View {
@@ -105,6 +112,23 @@ struct SettingsView: View {
                 }.padding(16).card()
 
                 VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 14) {
+                        tile("menubar.rectangle", color: .blue)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("隐藏菜单栏图标").font(.system(size: 14, weight: .semibold))
+                            Text("后台继续运行，预览与点击功能照常工作。")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Toggle("隐藏菜单栏图标", isOn: $model.hideMenuBarIcon)
+                            .labelsHidden().toggleStyle(.switch).tint(.indigo)
+                    }
+                    Text("隐藏后，按 ⌘ 空格搜索 Dock Enhanced 并打开，即可进入设置；也可在“应用程序”中双击打开。")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }.padding(16).card()
+
+                VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Label("预览停留时间", systemImage: "cursorarrow.rays").font(.system(size: 13, weight: .semibold))
                         Spacer()
@@ -127,6 +151,12 @@ struct SettingsView: View {
                     Text("最小化窗口使用缓存画面。授权后若缩略图未更新，退出并重新打开应用即可。")
                         .foregroundStyle(.secondary)
                 }.font(.system(size: 11)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+
+                HStack {
+                    Spacer()
+                    Button("退出 Dock Enhanced") { NSApplication.shared.terminate(nil) }
+                        .buttonStyle(.borderless).font(.system(size: 12)).foregroundStyle(.secondary)
+                }.padding(.horizontal, 4)
             }
             .padding(24)
         }

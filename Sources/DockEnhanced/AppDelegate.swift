@@ -14,6 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var permissionTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let launchEvent = NSAppleEventManager.shared().currentAppleEvent
+        let launchReason = launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue
+        let backgroundLaunch = launchEvent?.eventID == kAEOpenApplication &&
+            (launchReason == keyAELaunchedAsLogInItem || launchReason == keyAELaunchedAsServiceItem)
         NSApp.setActivationPolicy(.accessory)
         preferences.onFeaturesChange = { [weak self] in self?.refreshPermissions() }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -35,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
+        statusItem.isVisible = !preferences.hideMenuBarIcon
+        preferences.onMenuBarVisibilityChange = { [weak self] hidden in self?.statusItem.isVisible = !hidden }
         service.onStatusChanged = { [weak self] in self?.updateStatus() }
         #if DEBUG
         if let index = CommandLine.arguments.firstIndex(of: "--integration-check"), CommandLine.arguments.count > index + 1 {
@@ -45,7 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refreshPermissions() }
         refreshPermissions()
-        if preferences.anyFeatureEnabled && (!AXIsProcessTrusted() || (preferences.previewEnabled && !CGPreflightScreenCaptureAccess())) { showHelp() }
+        let needsPermissions = preferences.anyFeatureEnabled &&
+            (!AXIsProcessTrusted() || (preferences.previewEnabled && !CGPreflightScreenCaptureAccess()))
+        // Manual launches always provide a settings entry, including with no status
+        // icon. Login launches stay quiet once the necessary permissions are granted.
+        if !backgroundLaunch || needsPermissions { showHelp() }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) { refreshPermissions() }
