@@ -83,12 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatus() {
-        stateItem?.title = service.running ? "Dock Enhanced · 正在运行" : (preferences.anyFeatureEnabled ? "Dock Enhanced · 等待权限" : "Dock Enhanced · 已暂停")
+        preferences.switcherAvailable = service.switcherAvailable
+        preferences.switcherUnavailableReason = service.switcherUnavailableReason
+        preferences.running = service.running
+        stateItem?.title = "Dock Enhanced · " + preferences.serviceStatus
         previewItem?.state = preferences.previewEnabled ? .on : .off
         clickItem?.state = preferences.clickEnabled ? .on : .off
         switcherItem?.state = preferences.switcherEnabled ? .on : .off
-        preferences.switcherAvailable = service.switcherAvailable
-        preferences.running = service.running
     }
 
     @objc private func togglePreview() { preferences.previewEnabled.toggle() }

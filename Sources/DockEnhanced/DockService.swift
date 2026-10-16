@@ -1,5 +1,6 @@
 import AppKit
 import DockCore
+import Carbon
 
 private let replayMarker: Int64 = 0x444F434B454E48
 
@@ -11,11 +12,15 @@ private func dockEventCallback(proxy: CGEventTapProxy, type: CGEventType, event:
 final class DockService {
     let controller = WindowController()
     let locator = DockLocator()
-    let images = PreviewImages()
+    let images: PreviewImages
+    private let captureAccess: () -> Bool
     let preview = PreviewPanel()
     lazy var switcher = NativeWindowSwitcher(controller: controller)
     private(set) var switcherEnabled = true
-    var switcherAvailable: Bool { running && switcherEnabled && AXIsProcessTrusted() }
+    private(set) var switcherAvailable = false
+    private(set) var switcherUnavailableReason = "快捷键接管尚未就绪"
+    private var keyboardHookVerified = false
+    private static let keyboardMask: CGEventMask = [CGEventType.keyDown, .keyUp, .flagsChanged].reduce(0) { $0 | (1 << $1.rawValue) }
     private var lastSwitcherRefresh = Date.distantPast
     private(set) var running = false
     private(set) var previewsEnabled = true
@@ -34,17 +39,37 @@ final class DockService {
     private var contextMenuInteraction = false
     private var contextMenuStarted = Date.distantPast
 
-    init() {
+    init(captureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() }, capture: PreviewImages.Capture? = nil) {
+        self.captureAccess = captureAccess
+        self.images = capture.map { PreviewImages(captureAccess: captureAccess, capture: $0) } ?? PreviewImages(captureAccess: captureAccess)
         preview.onSelect = { [weak self] window, app in
             self?.controller.reveal(window, app: app)
             self?.hovered = nil
             self?.hoverPolicy.beginInteraction(appID: app.processIdentifier)
             self?.hoverPolicy.endInteraction()
         }
-        images.onUpdate = { [weak self] in
+        images.onUpdate = { [weak self] key in
             guard let self else { return }
             self.preview.updateImages(self.images)
+            if let key { self.switcher.updatePreviewImage(self.images.cache[key], for: key.switcherID) }
+            else { self.switcher.clearPreviewImages() }
         }
+        switcher.onCandidatesChanged = { [weak self] candidates in
+            guard let self, self.running, self.switcherEnabled else { return }
+            self.publishSwitcherImages()
+            self.images.refresh(candidates.map(\.window))
+        }
+    }
+
+    private func publishSwitcherImages() {
+        if images.cache.isEmpty { switcher.clearPreviewImages(); return }
+        for candidate in switcher.candidates {
+            switcher.updatePreviewImage(images.cache[candidate.window.key], for: candidate.id)
+        }
+    }
+
+    private func refreshImageAvailability() {
+        images.updateAvailability(hasConsumers: running && (previewsEnabled || switcherEnabled), captureGranted: captureAccess())
     }
 
     func configure(previewsEnabled: Bool, clickEnabled: Bool, switcherEnabled: Bool = true) {
@@ -61,13 +86,14 @@ final class DockService {
             hovered = nil
             hoverPolicy = PreviewHoverPolicy()
             preview.hide(animated: false)
-            images.clear()
             lastCapture = .distantPast
         }
         self.previewsEnabled = previewsEnabled
         self.clickEnabled = clickEnabled
         if previewsEnabled || clickEnabled || switcherEnabled { start() }
-        else if running { stop() }
+        else { stop() }
+        refreshImageAvailability()
+        refreshSwitcherCapability()
     }
 
     @discardableResult
@@ -86,6 +112,9 @@ final class DockService {
         CFRunLoopAddSource(CFRunLoopGetMain(), newSource, .commonModes)
         CGEvent.tapEnable(tap: newTap, enable: true)
         running = true
+        keyboardHookVerified = hasKeyboardEventDelivery()
+        refreshImageAvailability()
+        refreshSwitcherCapability()
         timer = Timer.scheduledTimer(withTimeInterval: 0.10, repeats: true) { [weak self] _ in self?.tick() }
         if let timer { RunLoop.main.add(timer, forMode: .common) }
         tick()
@@ -102,6 +131,8 @@ final class DockService {
         source = nil
         tap = nil
         running = false
+        keyboardHookVerified = false
+        invalidateSwitcherCapability(reason: "快捷键接管尚未就绪")
         switcher.stop()
         hoverPolicy = PreviewHoverPolicy()
         contextMenuInteraction = false
@@ -115,8 +146,7 @@ final class DockService {
 
     func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            switcher.cancel()
-            controller.cancelDeferredReveal()
+            invalidateSwitcherCapability(reason: "系统暂停了快捷键监听")
             if let pending { repost(pending.down); self.pending = nil }
             if !CGEventSource.buttonState(.combinedSessionState, button: .left) &&
                !CGEventSource.buttonState(.combinedSessionState, button: .right) {
@@ -125,10 +155,11 @@ final class DockService {
                 hoverPolicy.endInteraction()
             }
             if running, let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            DispatchQueue.main.async { [weak self] in self?.refreshSwitcherCapability() }
             return Unmanaged.passUnretained(event)
         }
         if event.getIntegerValueField(.eventSourceUserData) == replayMarker { return Unmanaged.passUnretained(event) }
-        if switcherEnabled, AXIsProcessTrusted(), switcher.handle(type: type, event: event) {
+        if switcherAvailable, AXIsProcessTrusted(), switcher.handle(type: type, event: event) {
             preview.hide(animated: false)
             return nil
         }
@@ -214,6 +245,47 @@ final class DockService {
         return nil
     }
 
+    /// One capability path shared by settings, input routing and fault recovery.
+    /// A mouse-capable tap alone is insufficient evidence of keyboard interception.
+    func refreshSwitcherCapability() {
+        let reason: String?
+        if !switcherEnabled { reason = "增强已关闭" }
+        else if !AXIsProcessTrusted() { reason = "需要辅助功能权限" }
+        else if !running || tap == nil { reason = "无法创建快捷键监听" }
+        else if !keyboardHookVerified { reason = "系统未开放完整的键盘事件" }
+        else if let tap, !CGEvent.tapIsEnabled(tap: tap) { reason = "系统暂停了快捷键监听" }
+        else if IsSecureEventInputEnabled() { reason = "安全输入期间暂不可用" }
+        else { reason = nil }
+        if let reason { invalidateSwitcherCapability(reason: reason) }
+        else if !switcherAvailable {
+            switcherAvailable = true
+            switcherUnavailableReason = ""
+            onStatusChanged?()
+        }
+    }
+
+    private func invalidateSwitcherCapability(reason: String) {
+        let changed = switcherAvailable || switcherUnavailableReason != reason
+        switcherAvailable = false
+        switcherUnavailableReason = reason
+        if switcher.isSelecting || changed {
+            switcher.cancel()
+            controller.cancelDeferredReveal()
+        }
+        if changed { onStatusChanged?() }
+    }
+
+    private func hasKeyboardEventDelivery() -> Bool {
+        var count: UInt32 = 0
+        guard CGGetEventTapList(0, nil, &count) == .success, count > 0 else { return false }
+        var info = [CGEventTapInformation](repeating: CGEventTapInformation(), count: Int(count))
+        guard CGGetEventTapList(count, &info, &count) == .success else { return false }
+        return info.prefix(Int(count)).contains {
+            $0.tappingProcess == getpid() && $0.options == .defaultTap && $0.enabled && $0.tapPoint == .cgSessionEventTap &&
+                $0.eventsOfInterest & Self.keyboardMask == Self.keyboardMask
+        }
+    }
+
     private func hasModifiers(_ event: CGEvent) -> Bool {
         !event.flags.intersection([.maskCommand, .maskControl, .maskAlternate, .maskShift]).isEmpty
     }
@@ -225,10 +297,13 @@ final class DockService {
     }
 
     private func tick() {
-        guard running, pending == nil else { return }
+        guard running else { return }
+        refreshImageAvailability()
         guard AXIsProcessTrusted() else { stop(); return }
+        refreshSwitcherCapability()
+        guard pending == nil else { return }
         let now = Date()
-        if switcherEnabled, now.timeIntervalSince(lastSwitcherRefresh) > 0.8 {
+        if switcherAvailable, now.timeIntervalSince(lastSwitcherRefresh) > 0.8 {
             lastSwitcherRefresh = now
             switcher.refreshCandidates()
         }
