@@ -31,7 +31,7 @@ struct WindowKey: Hashable {
 
 /// AX elements provide equality, not a globally unique hash. Allocate process-local
 /// identities so equal titles, hash collisions and refreshed wrappers stay distinct.
-private final class WindowIdentityRegistry {
+final class WindowIdentityRegistry {
     static let shared = WindowIdentityRegistry()
     private let lock = NSLock()
     private var entries: [pid_t: [(AXUIElement, Int)]] = [:]
@@ -52,6 +52,14 @@ private final class WindowIdentityRegistry {
         lock.lock()
         defer { lock.unlock() }
         return entries[pid, default: []].map(\.0)
+    }
+
+    /// Absence from AXWindows and failed/timed-out queries are not proof of
+    /// closure. Only a definitive invalid element retires this exact identity.
+    func forgetInvalidElement(_ element: AXUIElement, pid: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+        entries[pid]?.removeAll { CFEqual($0.0, element) }
     }
 
     func forgetTerminatedApps(_ live: Set<pid_t>) {
@@ -155,8 +163,13 @@ final class WindowController {
         var seen: [AXUIElement] = []
         let windows = elements.compactMap { element -> AppWindow? in
             AXUIElementSetMessagingTimeout(element, 0.06)
-            let role: String? = AX.value(element, kAXRoleAttribute)
-            guard role == kAXWindowRole, let frame = AX.rect(element), frame.width > 1, frame.height > 1 else { return nil }
+            var roleValue: CFTypeRef?
+            let roleResult = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+            if roleResult == .invalidUIElement {
+                WindowIdentityRegistry.shared.forgetInvalidElement(element, pid: app.processIdentifier)
+            }
+            guard roleResult == .success, roleValue as? String == kAXWindowRole,
+                  let frame = AX.rect(element), frame.width > 1, frame.height > 1 else { return nil }
             guard !seen.contains(where: { CFEqual($0, element) }) else { return nil }
             let rawTitle: String? = AX.value(element, kAXTitleAttribute)
             let title = rawTitle ?? ""
