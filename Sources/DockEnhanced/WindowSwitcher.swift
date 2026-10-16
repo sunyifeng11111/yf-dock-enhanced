@@ -25,6 +25,7 @@ final class NativeWindowSwitcher {
     private var generation = 0
     private var activationGeneration = 0
     private var swallowedKeys = Set<Int64>()
+    var onCandidatesChanged: (([SwitcherCandidate]) -> Void)?
     private let controller: WindowController
 
     init(controller: WindowController) { self.controller = controller }
@@ -55,6 +56,7 @@ final class NativeWindowSwitcher {
                     let right = ($1.app.localizedName ?? "", $1.window.title, $1.window.key.id)
                     return left < right
                 }
+                self.onCandidatesChanged?(self.candidates)
             }
         }
     }
@@ -75,6 +77,7 @@ final class NativeWindowSwitcher {
                 guard !candidates.isEmpty else { return false }
                 controller.userChangedWindow()
                 sessionCandidates = candidates
+                onCandidatesChanged?(sessionCandidates)
                 let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let current = pid.flatMap { focusedWindows[$0] }
                 workflow.begin(windows: sessionCandidates.map(\.id), current: current,
@@ -105,6 +108,12 @@ final class NativeWindowSwitcher {
         controller.cancelDeferredReveal()
     }
 
+    func updatePreviewImage(_ image: NSImage?, for windowID: SwitcherWindowID) {
+        panel.updatePreviewImage(image, for: windowID)
+    }
+
+    func clearPreviewImages() { panel.clearPreviewImages() }
+
     private func confirm() {
         activationGeneration += 1
         let confirmationGeneration = activationGeneration
@@ -133,6 +142,9 @@ final class WindowSwitcherPanel {
     let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     private var cards: [SwitcherWindowID: NSView] = [:]
     private var scroll: NSScrollView?
+    private var images: [SwitcherWindowID: NSImage] = [:]
+    private var thumbnails: [SwitcherWindowID: NSImageView] = [:]
+    private var icons: [SwitcherWindowID: NSImage] = [:]
     private(set) var windowIDs: [SwitcherWindowID] = []
 
     init() {
@@ -147,12 +159,12 @@ final class WindowSwitcherPanel {
         panel.setAccessibilityTitle("窗口切换")
     }
 
-    func show(candidates: [SwitcherCandidate], selected: SwitcherWindowID) {
+    func show(candidates: [SwitcherCandidate], selected: SwitcherWindowID, screen: NSScreen? = nil) {
         guard !candidates.isEmpty else { hide(); return }
         let ids = candidates.map(\.id)
         if windowIDs != ids || !panel.isVisible {
             windowIDs = ids
-            let available = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+            let available = (screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
             let width = min(available.width - 48, CGFloat(candidates.count) * 244 + 14)
             let size = CGSize(width: max(250, width), height: 206)
             panel.setFrame(CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2, width: size.width, height: size.height), display: false)
@@ -163,12 +175,17 @@ final class WindowSwitcherPanel {
             scrolling.autohidesScrollers = true
             let document = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(candidates.count) * 244 - 10, height: 170))
             cards = [:]
+            thumbnails = [:]
+            icons = [:]
             for (index, candidate) in candidates.enumerated() {
                 let card = NSView(frame: CGRect(x: CGFloat(index) * 244, y: 0, width: 234, height: 170))
                 card.wantsLayer = true
                 card.layer?.cornerRadius = 16
-                let icon = NSImageView(frame: CGRect(x: 85, y: 72, width: 64, height: 64))
-                icon.image = candidate.app.icon
+                let icon = NSImageView(frame: CGRect(x: 8, y: 66, width: 218, height: 90))
+                icon.image = images[candidate.id] ?? candidate.app.icon
+                icon.imageAlignment = .alignCenter
+                thumbnails[candidate.id] = icon
+                icons[candidate.id] = candidate.app.icon
                 icon.imageScaling = .scaleProportionallyUpOrDown
                 card.addSubview(icon)
                 let title = NSTextField(labelWithString: candidate.window.title)
@@ -177,7 +194,7 @@ final class WindowSwitcherPanel {
                 title.alignment = .center
                 title.lineBreakMode = .byTruncatingTail
                 card.addSubview(title)
-                let appName = NSTextField(labelWithString: candidate.app.localizedName ?? "应用")
+                let appName = NSTextField(labelWithString: (candidate.app.localizedName ?? "应用") + (candidate.window.state.minimized ? " · 已最小化" : ""))
                 appName.frame = CGRect(x: 10, y: 18, width: 214, height: 18)
                 appName.font = .systemFont(ofSize: 11)
                 appName.textColor = .secondaryLabelColor
@@ -204,5 +221,15 @@ final class WindowSwitcherPanel {
         panel.orderFrontRegardless()
     }
 
-    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; scroll = nil }
+    func updatePreviewImage(_ image: NSImage?, for windowID: SwitcherWindowID) {
+        images[windowID] = image
+        thumbnails[windowID]?.image = image ?? icons[windowID]
+    }
+
+    func clearPreviewImages() {
+        images.removeAll()
+        for (id, thumbnail) in thumbnails { thumbnail.image = icons[id] }
+    }
+
+    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; thumbnails = [:]; icons = [:]; scroll = nil }
 }

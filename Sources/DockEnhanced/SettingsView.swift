@@ -8,25 +8,24 @@ enum PreviewPreferences {
 }
 
 final class SettingsModel: ObservableObject {
-    // Carry the old master switch into each feature until that feature is customized.
-    @Published var previewEnabled = UserDefaults.standard.object(forKey: "previewEnabled") as? Bool
-        ?? UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(previewEnabled, forKey: "previewEnabled"); onFeaturesChange?() }
+    private let defaults: UserDefaults
+    @Published var previewEnabled: Bool {
+        didSet { defaults.set(previewEnabled, forKey: "previewEnabled"); onFeaturesChange?() }
     }
-    @Published var clickEnabled = UserDefaults.standard.object(forKey: "clickEnabled") as? Bool
-        ?? UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(clickEnabled, forKey: "clickEnabled"); onFeaturesChange?() }
+    @Published var clickEnabled: Bool {
+        didSet { defaults.set(clickEnabled, forKey: "clickEnabled"); onFeaturesChange?() }
     }
-    @Published var switcherEnabled = UserDefaults.standard.object(forKey: "switcherEnabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(switcherEnabled, forKey: "switcherEnabled"); onFeaturesChange?() }
+    @Published var switcherEnabled: Bool {
+        didSet { defaults.set(switcherEnabled, forKey: "switcherEnabled"); onFeaturesChange?() }
     }
     @Published var switcherAvailable = false
-    @Published var delay = PreviewPreferences.hoverDelay {
-        didSet { UserDefaults.standard.set(delay, forKey: "hoverDelay") }
+    @Published var switcherUnavailableReason = "快捷键接管尚未就绪"
+    @Published var delay: Double {
+        didSet { defaults.set(delay, forKey: "hoverDelay") }
     }
-    @Published var hideMenuBarIcon = UserDefaults.standard.bool(forKey: "hideMenuBarIcon") {
+    @Published var hideMenuBarIcon: Bool {
         didSet {
-            UserDefaults.standard.set(hideMenuBarIcon, forKey: "hideMenuBarIcon")
+            defaults.set(hideMenuBarIcon, forKey: "hideMenuBarIcon")
             onMenuBarVisibilityChange?(hideMenuBarIcon)
         }
     }
@@ -34,16 +33,54 @@ final class SettingsModel: ObservableObject {
     @Published var captureGranted = false
     @Published var running = false
     var anyFeatureEnabled: Bool { previewEnabled || clickEnabled || switcherEnabled }
+    var switcherStatus: String {
+        guard switcherEnabled else { return "增强已关闭 · 使用系统 Command+Tab" }
+        guard accessibilityGranted else { return "需要辅助功能权限 · 系统 Command+Tab 仍可用" }
+        guard switcherAvailable else { return switcherUnavailableReason + " · 系统 Command+Tab 仍可用" }
+        return captureGranted ? "增强可用 · 窗口缩略图已启用" : "增强可用 · 图标和标题可用（未授权屏幕录制）"
+    }
+    var serviceStatus: String {
+        guard anyFeatureEnabled else { return "已暂停" }
+        guard running else { return accessibilityGranted ? "控制服务未就绪" : "等待辅助功能授权" }
+        if switcherEnabled && !switcherAvailable { return "部分功能可用" }
+        return "正在运行"
+    }
     var onFeaturesChange: (() -> Void)?
     var onMenuBarVisibilityChange: ((Bool) -> Void)?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        // Existing Dock choices inherit the former master only until customized.
+        // The new feature never inherits that old switch.
+        previewEnabled = defaults.object(forKey: "previewEnabled") as? Bool
+            ?? defaults.object(forKey: "enabled") as? Bool ?? true
+        clickEnabled = defaults.object(forKey: "clickEnabled") as? Bool
+            ?? defaults.object(forKey: "enabled") as? Bool ?? true
+        switcherEnabled = defaults.object(forKey: "switcherEnabled") as? Bool ?? true
+        delay = min(1.5, max(0.4, defaults.object(forKey: "hoverDelay") as? Double ?? 0.40))
+        hideMenuBarIcon = defaults.bool(forKey: "hideMenuBarIcon")
+    }
 }
 
 private enum SettingsPage: String, CaseIterable {
     case dock = "Dock 功能"
+    case switcher = "窗口切换"
     case general = "通用"
 
-    var symbol: String { self == .dock ? "dock.rectangle" : "gearshape" }
-    var detail: String { self == .dock ? "让窗口预览与切换符合你的习惯。" : "管理启动、菜单栏显示与系统权限。" }
+    var symbol: String {
+        switch self {
+        case .dock: return "dock.rectangle"
+        case .switcher: return "rectangle.3.group"
+        case .general: return "gearshape"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .dock: return "让窗口预览与点击符合你的习惯。"
+        case .switcher: return "用 Command+Tab 直接选择具体窗口。"
+        case .general: return "管理启动、菜单栏显示与系统权限。"
+        }
+    }
 }
 
 // Disambiguate the property wrapper from the newer SDK's same-named macro.
@@ -57,7 +94,7 @@ struct SettingsView: View {
     @ViewState private var page = SettingsPage.dock
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var status: String { model.running ? "正在运行" : (model.anyFeatureEnabled ? "等待授权" : "已暂停") }
+    private var status: String { model.serviceStatus }
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版" }
 
     var body: some View {
@@ -72,7 +109,11 @@ struct SettingsView: View {
                 .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 22)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
-                        if page == .dock { dockSettings } else { generalSettings }
+                        switch page {
+                        case .dock: dockSettings
+                        case .switcher: switcherSettings
+                        case .general: generalSettings
+                        }
                     }
                     .padding(.horizontal, 28).padding(.bottom, 24)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,6 +202,27 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private var switcherSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            settingToggle("Command+Tab 增强", detail: "跨应用逐个选择窗口，包含已最小化和隐藏应用的窗口。", symbol: "rectangle.3.group", isOn: $model.switcherEnabled,
+                          needsPermission: model.switcherEnabled && !model.accessibilityGranted)
+                .settingsGroup()
+            Label(model.switcherStatus, systemImage: model.switcherAvailable ? "checkmark.circle" : "info.circle")
+                .font(.system(size: 12)).foregroundStyle(model.switcherAvailable ? Color.secondary : Color.orange)
+                .padding(.horizontal, 4).fixedSize(horizontal: false, vertical: true)
+            Text("按住 Command 并按 Tab 浏览，松开确认；Shift+Tab 反向选择。方向键和鼠标也可选中，Enter 确认，Esc 取消。关闭后立即恢复系统 Command+Tab。")
+                .settingsFootnote()
+        }
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("缩略图与隐私")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("屏幕录制仅用于缩略图；未授权时仍可使用图标和标题切换窗口。最小化窗口使用最近缓存，并标注“已最小化”。")
+                Text("图片只在内存中保留，最多 64 张；关闭两种预览、撤销录屏权限或退出会清除。窗口标题、使用历史与图片不会写入磁盘。")
+                Text("仅识别切换和导航需要的物理按键与修饰键，不读取或记录输入文字。")
+            }.font(.system(size: 12)).foregroundStyle(.secondary).padding(16).settingsGroup()
+        }
+    }
+
     @ViewBuilder private var generalSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("启动与显示")
@@ -188,9 +250,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("系统权限")
             VStack(spacing: 0) {
-                permission("辅助功能", detail: "识别 Dock 图标，操作你选择的窗口。", symbol: "hand.point.up.left", granted: model.accessibilityGranted, action: requestAccessibility)
+                permission("辅助功能", detail: "识别 Dock 图标与切换快捷键，操作你选择的窗口。", symbol: "hand.point.up.left", granted: model.accessibilityGranted, action: requestAccessibility)
                 Divider().padding(.horizontal, 16)
-                permission("屏幕录制", detail: "仅悬停预览需要，用于生成窗口缩略图。", symbol: "rectangle.on.rectangle", granted: model.captureGranted, action: requestCapture)
+                permission("屏幕录制", detail: "用于悬停预览与窗口切换的缩略图；不影响图标和标题切换。", symbol: "rectangle.on.rectangle", granted: model.captureGranted, action: requestCapture)
             }.settingsGroup()
             Text("若授权后仍未生效，请退出并重新打开应用。")
                 .settingsFootnote()
