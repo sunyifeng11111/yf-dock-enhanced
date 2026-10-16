@@ -13,6 +13,10 @@ final class DockService {
     let locator = DockLocator()
     let images = PreviewImages()
     let preview = PreviewPanel()
+    lazy var switcher = NativeWindowSwitcher(controller: controller)
+    private(set) var switcherEnabled = true
+    var switcherAvailable: Bool { running && switcherEnabled && AXIsProcessTrusted() }
+    private var lastSwitcherRefresh = Date.distantPast
     private(set) var running = false
     private(set) var previewsEnabled = true
     private(set) var clickEnabled = true
@@ -43,7 +47,12 @@ final class DockService {
         }
     }
 
-    func configure(previewsEnabled: Bool, clickEnabled: Bool) {
+    func configure(previewsEnabled: Bool, clickEnabled: Bool, switcherEnabled: Bool = true) {
+        if self.switcherEnabled != switcherEnabled {
+            switcher.stop()
+            lastSwitcherRefresh = .distantPast
+        }
+        self.switcherEnabled = switcherEnabled
         if self.clickEnabled != clickEnabled {
             if let pending { repost(pending.down); self.pending = nil }
             controller.userChangedWindow()
@@ -57,7 +66,7 @@ final class DockService {
         }
         self.previewsEnabled = previewsEnabled
         self.clickEnabled = clickEnabled
-        if previewsEnabled || clickEnabled { start() }
+        if previewsEnabled || clickEnabled || switcherEnabled { start() }
         else if running { stop() }
     }
 
@@ -65,7 +74,7 @@ final class DockService {
     func start() -> Bool {
         guard !running else { return true }
         guard AXIsProcessTrusted() else { return false }
-        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp, .keyDown]
+        let types: [CGEventType] = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp, .keyDown, .keyUp, .flagsChanged]
         let mask = types.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
         guard let newTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap,
                                             options: .defaultTap, eventsOfInterest: mask,
@@ -93,6 +102,7 @@ final class DockService {
         source = nil
         tap = nil
         running = false
+        switcher.stop()
         hoverPolicy = PreviewHoverPolicy()
         contextMenuInteraction = false
         hovered = nil
@@ -105,6 +115,8 @@ final class DockService {
 
     func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            switcher.cancel()
+            controller.cancelDeferredReveal()
             if let pending { repost(pending.down); self.pending = nil }
             if !CGEventSource.buttonState(.combinedSessionState, button: .left) &&
                !CGEventSource.buttonState(.combinedSessionState, button: .right) {
@@ -116,8 +128,13 @@ final class DockService {
             return Unmanaged.passUnretained(event)
         }
         if event.getIntegerValueField(.eventSourceUserData) == replayMarker { return Unmanaged.passUnretained(event) }
+        if switcherEnabled, AXIsProcessTrusted(), switcher.handle(type: type, event: event) {
+            preview.hide(animated: false)
+            return nil
+        }
         if type == .leftMouseUp || type == .rightMouseUp { hoverPolicy.endInteraction() }
         if type == .leftMouseDown || type == .rightMouseDown {
+            if switcher.isSelecting { switcher.cancel() }
             controller.cancelDeferredReveal()
             let item = locator.item(at: event.location)
             if let item {
@@ -133,8 +150,8 @@ final class DockService {
             }
         }
         if type == .keyDown {
-            // Observe activity only; never inspect key codes or characters. Working in a
-            // different window ends the consecutive Dock-click restore interaction.
+            // Switcher navigation was handled above using physical key codes only.
+            // Other keyboard activity cancels deferred Dock/window restoration.
             controller.userChangedWindow()
             // Arrow keys can navigate a still-open Dock menu. Only the menu-state
             // check in tick() may release context-menu suppression.
@@ -211,6 +228,11 @@ final class DockService {
         guard running, pending == nil else { return }
         guard AXIsProcessTrusted() else { stop(); return }
         let now = Date()
+        if switcherEnabled, now.timeIntervalSince(lastSwitcherRefresh) > 0.8 {
+            lastSwitcherRefresh = now
+            switcher.refreshCandidates()
+        }
+        if switcher.isSelecting { preview.hide(animated: false); return }
         if now.timeIntervalSince(lastRefresh) > 0.4 {
             lastRefresh = now
             if let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getpid() {

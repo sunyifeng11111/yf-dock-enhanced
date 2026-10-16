@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var stateItem: NSMenuItem!
     private var previewItem: NSMenuItem!
     private var clickItem: NSMenuItem!
+    private var switcherItem: NSMenuItem!
     private var helpWindow: NSWindow?
     let preferences = SettingsModel()
     let loginItem = LoginItem()
@@ -31,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         clickItem = NSMenuItem(title: "点击收起 / 恢复", action: #selector(toggleClick), keyEquivalent: "")
         clickItem.target = self
         menu.addItem(clickItem)
+        switcherItem = NSMenuItem(title: "Command+Tab 增强", action: #selector(toggleSwitcher), keyEquivalent: "")
+        switcherItem.target = self
+        menu.addItem(switcherItem)
         let help = NSMenuItem(title: "设置…", action: #selector(showHelp), keyEquivalent: "")
         help.target = self
         menu.addItem(help)
@@ -44,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         service.onStatusChanged = { [weak self] in self?.updateStatus() }
         #if DEBUG
         if let index = CommandLine.arguments.firstIndex(of: "--integration-check"), CommandLine.arguments.count > index + 1 {
-            service.configure(previewsEnabled: true, clickEnabled: true)
+            service.configure(previewsEnabled: true, clickEnabled: true, switcherEnabled: false)
             NativeIntegrationCheck(service: service, fixtureURL: URL(fileURLWithPath: CommandLine.arguments[index + 1])).run()
             return
         }
@@ -72,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshPermissions() {
         loginItem.refresh()
-        service.configure(previewsEnabled: preferences.previewEnabled, clickEnabled: preferences.clickEnabled)
+        service.configure(previewsEnabled: preferences.previewEnabled, clickEnabled: preferences.clickEnabled, switcherEnabled: preferences.switcherEnabled)
         preferences.accessibilityGranted = AXIsProcessTrusted()
         preferences.captureGranted = CGPreflightScreenCaptureAccess()
         updateStatus()
@@ -82,10 +86,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         stateItem?.title = service.running ? "Dock Enhanced · 正在运行" : (preferences.anyFeatureEnabled ? "Dock Enhanced · 等待权限" : "Dock Enhanced · 已暂停")
         previewItem?.state = preferences.previewEnabled ? .on : .off
         clickItem?.state = preferences.clickEnabled ? .on : .off
+        switcherItem?.state = preferences.switcherEnabled ? .on : .off
+        preferences.switcherAvailable = service.switcherAvailable
         preferences.running = service.running
     }
 
     @objc private func togglePreview() { preferences.previewEnabled.toggle() }
+    @objc private func toggleSwitcher() { preferences.switcherEnabled.toggle() }
     @objc private func toggleClick() { preferences.clickEnabled.toggle() }
 
     @objc private func quit() { NSApp.terminate(nil) }

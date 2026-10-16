@@ -29,6 +29,32 @@ struct WindowKey: Hashable {
     let id: Int
 }
 
+/// AX elements provide equality, not a globally unique hash. Allocate process-local
+/// identities so equal titles, hash collisions and refreshed wrappers stay distinct.
+private final class WindowIdentityRegistry {
+    static let shared = WindowIdentityRegistry()
+    private let lock = NSLock()
+    private var entries: [pid_t: [(AXUIElement, Int)]] = [:]
+    private var next = 0
+
+    func key(for element: AXUIElement, pid: pid_t) -> WindowKey {
+        lock.lock()
+        defer { lock.unlock() }
+        if let entry = entries[pid]?.first(where: { CFEqual($0.0, element) }) {
+            return WindowKey(pid: pid, id: entry.1)
+        }
+        next += 1
+        entries[pid, default: []].append((element, next))
+        return WindowKey(pid: pid, id: next)
+    }
+
+    func forgetTerminatedApps(_ live: Set<pid_t>) {
+        lock.lock()
+        defer { lock.unlock() }
+        entries = entries.filter { live.contains($0.key) }
+    }
+}
+
 struct AppWindow {
     let element: AXUIElement
     let key: WindowKey
@@ -124,10 +150,10 @@ final class WindowController {
             let isFocused = focused.map { CFEqual(element, $0) } ?? false
             // Frameworks can expose untitled backdrop/panel windows in AXWindows.
             // Preserve real untitled standard windows and active custom dialogs.
-            if rawTitle?.isEmpty == true, let subrole, subrole != kAXStandardWindowSubrole && subrole != kAXDialogSubrole,
+            if title.isEmpty, let subrole, subrole != kAXStandardWindowSubrole && subrole != kAXDialogSubrole,
                !isFocused, (AX.value(element, kAXMainAttribute) as Bool?) == false { return nil }
             seen.append(element)
-            let id = Int(CFHash(element))
+            let id = windowKey(for: element, pid: app.processIdentifier).id
             var writable = DarwinBoolean(false)
             AXUIElementIsAttributeSettable(element, kAXMinimizedAttribute as CFString, &writable)
             let minimized: Bool = AX.value(element, kAXMinimizedAttribute) ?? false
@@ -141,6 +167,27 @@ final class WindowController {
             recent[app.processIdentifier] = windows.first?.key.id
         }
         return windows
+    }
+
+    func windowKey(for element: AXUIElement, pid: pid_t) -> WindowKey {
+        WindowIdentityRegistry.shared.key(for: element, pid: pid)
+    }
+
+    func focusedWindow(of app: NSRunningApplication, in windows: [AppWindow]) -> AppWindow? {
+        let owner = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(owner, 0.04)
+        guard let focused: AXUIElement = AX.value(owner, kAXFocusedWindowAttribute) else { return nil }
+        return windows.first { CFEqual($0.element, focused) }
+    }
+
+    func isFocused(_ window: AppWindow, app: NSRunningApplication) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
+              !app.isHidden,
+              (AX.value(window.element, kAXMinimizedAttribute) as Bool?) == false else { return false }
+        let owner = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(owner, 0.04)
+        guard let focused: AXUIElement = AX.value(owner, kAXFocusedWindowAttribute) else { return false }
+        return CFEqual(focused, window.element)
     }
 
     func action(for app: NSRunningApplication, windows: [AppWindow]) -> DockClickAction {
@@ -157,7 +204,7 @@ final class WindowController {
         let owner = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(owner, 0.04)
         if let focused: AXUIElement = AX.value(owner, kAXFocusedWindowAttribute) {
-            recent[app.processIdentifier] = Int(CFHash(focused))
+            recent[app.processIdentifier] = windowKey(for: focused, pid: app.processIdentifier).id
         }
     }
 
@@ -214,7 +261,7 @@ final class WindowController {
                 self.recent[app.processIdentifier] = current.key.id
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                     guard let self, generation == self.revealGeneration, attempt < 12 else { return }
-                    if NSWorkspace.shared.frontmostApplication?.processIdentifier != app.processIdentifier {
+                    if !self.isFocused(current, app: app) {
                         self.finishRestore(window, app: app, generation: generation, attempt: attempt + 1)
                     }
                 }
@@ -240,6 +287,7 @@ final class WindowController {
 
     func forgetTerminatedApps() {
         let pids = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        WindowIdentityRegistry.shared.forgetTerminatedApps(pids)
         recent = recent.filter { pids.contains($0.key) }
         minimizedByClick = minimizedByClick.filter { pids.contains($0.key) }
     }

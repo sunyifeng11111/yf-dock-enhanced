@@ -182,7 +182,7 @@ final class NativeIntegrationCheck {
                 let owner = AXUIElementCreateApplication(app.processIdentifier)
                 let focused: AXUIElement? = AX.value(owner, kAXFocusedWindowAttribute)
                 try require(selectedKey == target, "the clicked preview selects its displayed window")
-                try require(focused.map { Int(CFHash($0)) } == target.id, "clicking a preview focuses its exact window")
+                try require(focused.map { service.controller.windowKey(for: $0, pid: app.processIdentifier) } == target, "clicking a preview focuses its exact window")
                 var stayedFrontmost = true
                 for _ in 0..<10 {
                     stayedFrontmost = stayedFrontmost && NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
@@ -272,7 +272,7 @@ final class NativeIntegrationCheck {
         _ = service.controller.reveal(window, app: app)
         await pause(0.5)
 
-        service.configure(previewsEnabled: true, clickEnabled: false)
+        service.configure(previewsEnabled: true, clickEnabled: false, switcherEnabled: false)
         _ = try await hover(app)
         try require(service.preview.isVisible, "previews work with click control disabled")
         try await dockClick(app)
@@ -285,9 +285,9 @@ final class NativeIntegrationCheck {
         click(at: quartzPoint(CGPoint(x: panel.minX + 12 + 117, y: panel.minY + 100)))
         await pause(0.7)
         let focused: AXUIElement? = AX.value(AXUIElementCreateApplication(app.processIdentifier), kAXFocusedWindowAttribute)
-        try require(focused.map { Int(CFHash($0)) } == selected.id, "preview selection works with click control disabled")
+        try require(focused.map { service.controller.windowKey(for: $0, pid: app.processIdentifier) } == selected, "preview selection works with click control disabled")
 
-        service.configure(previewsEnabled: false, clickEnabled: true)
+        service.configure(previewsEnabled: false, clickEnabled: true, switcherEnabled: false)
         try require(!service.preview.isVisible && service.images.cache.isEmpty, "turning previews off dismisses the panel and clears thumbnails")
         move(to: center(window.frame))
         await pause(0.4)
@@ -304,12 +304,12 @@ final class NativeIntegrationCheck {
         try require(service.controller.windows(of: app).allSatisfy { !$0.state.minimized },
                     "click control restores a window with previews disabled")
 
-        service.configure(previewsEnabled: false, clickEnabled: false)
+        service.configure(previewsEnabled: false, clickEnabled: false, switcherEnabled: false)
         try require(!service.running && !service.preview.isVisible && service.images.cache.isEmpty, "both features off stops the service")
         try await dockClick(app)
         await pause(0.5)
         try require(service.controller.windows(of: app).allSatisfy { !$0.state.minimized }, "both features off leaves native Dock behavior intact")
-        service.configure(previewsEnabled: true, clickEnabled: true)
+        service.configure(previewsEnabled: true, clickEnabled: true, switcherEnabled: false)
         _ = try await hover(app)
         try require(service.running && service.preview.isVisible, "enabling both features restarts previews and click handling")
     }

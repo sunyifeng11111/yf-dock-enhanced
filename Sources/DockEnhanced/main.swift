@@ -8,7 +8,10 @@ if CommandLine.arguments.contains("--diagnose") {
 }
 let application = NSApplication.shared
 let delegate: NSApplicationDelegate
-if CommandLine.arguments.contains("--check-chrome-preview") { delegate = ChromePreviewCheck() }
+if let index = CommandLine.arguments.firstIndex(of: "--check-command-tab"), CommandLine.arguments.count > index + 2 {
+    delegate = WindowSwitcherCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
+}
+else if CommandLine.arguments.contains("--check-chrome-preview") { delegate = ChromePreviewCheck() }
 else if CommandLine.arguments.contains("--check-window-count") { delegate = WindowInventoryCheck() }
 else if CommandLine.arguments.contains("--fixture") { delegate = FixtureDelegate() }
 else { delegate = AppDelegate() }

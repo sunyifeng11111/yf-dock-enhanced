@@ -17,6 +17,10 @@ final class SettingsModel: ObservableObject {
         ?? UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(clickEnabled, forKey: "clickEnabled"); onFeaturesChange?() }
     }
+    @Published var switcherEnabled = UserDefaults.standard.object(forKey: "switcherEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(switcherEnabled, forKey: "switcherEnabled"); onFeaturesChange?() }
+    }
+    @Published var switcherAvailable = false
     @Published var delay = PreviewPreferences.hoverDelay {
         didSet { UserDefaults.standard.set(delay, forKey: "hoverDelay") }
     }
@@ -29,7 +33,7 @@ final class SettingsModel: ObservableObject {
     @Published var accessibilityGranted = false
     @Published var captureGranted = false
     @Published var running = false
-    var anyFeatureEnabled: Bool { previewEnabled || clickEnabled }
+    var anyFeatureEnabled: Bool { previewEnabled || clickEnabled || switcherEnabled }
     var onFeaturesChange: (() -> Void)?
     var onMenuBarVisibilityChange: ((Bool) -> Void)?
 }
