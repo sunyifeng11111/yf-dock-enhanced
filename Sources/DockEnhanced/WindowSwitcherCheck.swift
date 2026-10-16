@@ -81,14 +81,28 @@ final class WindowSwitcherCheck: NSObject, NSApplicationDelegate {
                 await pause(0.3)
                 try require(fixtures[1].isHidden && service.controller.isFocused(source, app: fixtures[0]),
                             "cancel preserves the hidden application and exact source focus")
+                await refresh()
+                try await select(target.windowID, source: source, sourceApp: fixtures[0])
+                command(down: false)
+                await pause(1)
+                try require(service.controller.isFocused(target, app: fixtures[1]) && isVisibleOnActiveSpace(target),
+                            "confirmation unhides the exact ordinary target with actual visible focus")
+                command(down: true)
+                key(4, down: true, flags: .maskCommand)
+                key(4, down: false, flags: .maskCommand)
+                command(down: false)
+                await pause(0.5)
+                try require(fixtures[1].isHidden, "application hidden again for the independent minimized case")
+                _ = service.controller.reveal(source, app: fixtures[0])
+                await pause(0.5)
                 try require(AX.set(target.element, kAXMinimizedAttribute, true), "hidden target independently minimized")
                 await refresh()
                 try await select(target.windowID, source: source, sourceApp: fixtures[0], verifyMinimized: target)
                 try require(fixtures[1].isHidden, "browsing a hidden minimized target preserves application hiding")
                 command(down: false)
                 await pause(2)
-                try require(service.controller.isFocused(target, app: fixtures[1]),
-                            "confirmation unhides and restores the exact hidden minimized window")
+                try require(service.controller.isFocused(target, app: fixtures[1]) && isVisibleOnActiveSpace(target),
+                            "confirmation unhides and restores the exact hidden minimized window with actual visibility")
                 var confirmedExactFocus: Bool?
                 _ = service.controller.reveal(sameAppTarget, app: fixtures[1]) { success in
                     confirmedExactFocus = success && self.service.controller.isFocused(sameAppTarget, app: fixtures[1])
@@ -167,6 +181,17 @@ final class WindowSwitcherCheck: NSObject, NSApplicationDelegate {
         print("DIAGNOSTIC: app children roles=\(children.map { (AX.value($0, kAXRoleAttribute) as String?) ?? "none" }); known ordinary role=\((AX.value(ordinary.element, kAXRoleAttribute) as String?) ?? "none") frame=\(String(describing: AX.rect(ordinary.element)))")
         let raw: [AXUIElement] = AX.value(owner, kAXWindowsAttribute) ?? []
         print("DIAGNOSTIC: raw fixture AX windows=\(raw.map { [(AX.value($0, kAXIdentifierAttribute) as String?) ?? "none", (AX.value($0, kAXRoleAttribute) as String?) ?? "none", (AX.value($0, kAXSubroleAttribute) as String?) ?? "none", String(describing: AX.rect($0))] })")
+        let probe = Process()
+        probe.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        probe.arguments = ["--probe-fixture-inventory", String(app.processIdentifier)]
+        let output = Pipe()
+        probe.standardOutput = output
+        try probe.run()
+        for _ in 0..<30 { if !probe.isRunning { break }; await pause(0.1) }
+        if probe.isRunning { probe.terminate(); throw failure("cold fixture inventory probe exceeded its bounded deadline") }
+        let evidence = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        print(evidence.trimmingCharacters(in: .whitespacesAndNewlines))
+        if probe.terminationStatus != 0 { print("LIMITATION: a fresh utility process cannot enumerate both fixture windows while this app is full screen") }
         let windows = service.controller.windows(of: app)
         print("DIAGNOSTIC: fixture after full-screen entries=\(windows.map { [$0.key.id.description, (AX.value($0.element, kAXIdentifierAttribute) as String?) ?? "none", $0.state.fullScreen.description] }), old ordinary=\(ordinary.key.id) fullscreen=\(fullScreen.key.id)")
         // Only the controlled fixture supplies independently known identifiers.
