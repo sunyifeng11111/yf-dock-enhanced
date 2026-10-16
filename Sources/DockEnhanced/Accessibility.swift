@@ -142,7 +142,11 @@ final class WindowController {
     func windows(of app: NSRunningApplication) -> [AppWindow] {
         let owner = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(owner, 0.06)
-        let reported: [AXUIElement] = AX.value(owner, kAXWindowsAttribute) ?? []
+        var reportedValue: CFTypeRef?
+        // A timed-out owner is not a successful empty/full-screen inventory.
+        // Avoid multiplying its messaging timeout across every retained element.
+        guard AXUIElementCopyAttributeValue(owner, kAXWindowsAttribute as CFString, &reportedValue) == .success,
+              let reported = reportedValue as? [AXUIElement] else { return [] }
         // AppKit can omit ordinary windows from AXWindows while that application
         // is full screen. Keep previously identified exact elements discoverable;
         // every retained element still has to pass live role/frame/state reads.
@@ -268,7 +272,9 @@ final class WindowController {
             return false
         }
         minimizedByClick.removeValue(forKey: app.processIdentifier)
-        _ = bringForward(current, app: app)
+        // Restoring can complete asynchronously. Keep the first foreground
+        // request deferred so newer input can cancel it before it steals focus.
+        if !minimized { _ = bringForward(current, app: app) }
         finishRestore(current, app: app, generation: generation, attempt: 0, completion: completion)
         return true
     }

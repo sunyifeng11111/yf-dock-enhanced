@@ -1,11 +1,13 @@
 #if DEBUG
 import AppKit
 import ScreenCaptureKit
+import Carbon
 import DockCore
 
 final class FixtureDelegate: NSObject, NSApplicationDelegate {
     private var windows: [NSWindow] = []
     private var stateTimer: Timer?
+    private var secureInput = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -52,6 +54,22 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
             // Fixture-only evidence: public AppKit state, never user window data.
             stateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
                 guard let self else { return }
+                let commandURL = url.appendingPathExtension("command")
+                if let command = try? String(contentsOf: commandURL, encoding: .utf8) {
+                    try? FileManager.default.removeItem(at: commandURL)
+                    if command == "new" {
+                        let window = NSWindow(contentRect: CGRect(x: 260, y: 300, width: 440, height: 300), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+                        window.title = "Controlled newly created window"
+                        window.setAccessibilityIdentifier("switcher-fixture-new-\(self.windows.count)")
+                        window.isReleasedWhenClosed = false
+                        window.orderFront(nil)
+                        self.windows.append(window)
+                    } else if command == "secure-on", !self.secureInput {
+                        self.secureInput = EnableSecureEventInput() == noErr
+                    } else if command == "secure-off", self.secureInput {
+                        _ = DisableSecureEventInput(); self.secureInput = false
+                    }
+                }
                 let state = self.windows.prefix(2).enumerated().map { index, window in
                     ["identifier": "switcher-fixture-\(index)", "number": window.windowNumber, "pid": Int(getpid()),
                      "onActiveSpace": window.isOnActiveSpace, "visible": window.isVisible,
@@ -61,22 +79,29 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+    func applicationWillTerminate(_ notification: Notification) { if secureInput { _ = DisableSecureEventInput() } }
 }
 
 final class NativeIntegrationCheck {
     let service: DockService
     let fixtureURL: URL
+    let sourceFixtureURL: URL?
 
-    init(service: DockService, fixtureURL: URL) { self.service = service; self.fixtureURL = fixtureURL }
+    init(service: DockService, fixtureURL: URL, sourceFixtureURL: URL? = nil) {
+        self.service = service; self.fixtureURL = fixtureURL; self.sourceFixtureURL = sourceFixtureURL
+    }
 
     func run() {
         Task { @MainActor in
             let foreground = NSWorkspace.shared.frontmostApplication
-            let previousApp = foreground?.bundleIdentifier == "dev.yifeng.DockEnhancedFixture"
+            let originalWindow = foreground.flatMap { service.controller.focusedWindow(of: $0, in: service.controller.windows(of: $0)) }
+            var previousApp = foreground?.bundleIdentifier == "dev.yifeng.DockEnhancedFixture"
                 ? NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == "com.apple.finder" }
                 : foreground
             let previousPointer = quartzPoint(NSEvent.mouseLocation)
             var fixture: NSRunningApplication?
+            var sourceFixture: NSRunningApplication?
+            let backdrop = controlledBackdrop()
             var result: Int32 = 0
             do {
                 try require(service.running, "event tap is active")
@@ -85,6 +110,14 @@ final class NativeIntegrationCheck {
                     oldFixture.terminate()
                 }
                 await pause(0.6)
+                if let sourceFixtureURL {
+                    let sourceConfig = NSWorkspace.OpenConfiguration()
+                    sourceConfig.arguments = ["--fixture"]
+                    sourceConfig.createsNewApplicationInstance = true
+                    sourceFixture = try await NSWorkspace.shared.openApplication(at: sourceFixtureURL, configuration: sourceConfig)
+                    previousApp = sourceFixture
+                    await pause(0.6)
+                }
                 let configuration = NSWorkspace.OpenConfiguration()
                 configuration.arguments = ["--fixture"]
                 configuration.createsNewApplicationInstance = true
@@ -110,6 +143,11 @@ final class NativeIntegrationCheck {
                 let point = try await hover(app)
                 try require(service.locator.item(at: point)?.app.processIdentifier == app.processIdentifier, "Dock icon belongs to the fixture instance")
                 try require(service.preview.isVisible && service.preview.windowKeys.count == 2, "hover shows both window previews")
+                for _ in 0..<30 {
+                    if windows.allSatisfy({ service.images.cache[$0.key] != nil }) { break }
+                    service.images.refresh(windows)
+                    await pause(0.1)
+                }
                 try require(windows.allSatisfy { service.images.cache[$0.key] != nil }, "both thumbnails contain captured window images")
                 try require(windows.allSatisfy { window in
                     guard let image = service.images.cache[window.key] else { return false }
@@ -262,6 +300,7 @@ final class NativeIntegrationCheck {
                             _ = service.controller.reveal(window, app: previousApp)
                         }
                         await pause(1.5)
+                        print("DIAGNOSTIC: held-Dock-press intercepted=\(intercepted) sourceStayedForeground=\(keptForeground)")
                         try require(intercepted && keptForeground, "a held intercepted Dock press cancels earlier deferred activation immediately")
                     }
                 }
@@ -273,10 +312,11 @@ final class NativeIntegrationCheck {
             }
             service.stop()
             fixture?.terminate()
-            if let previousApp {
-                _ = AX.set(AXUIElementCreateApplication(previousApp.processIdentifier), kAXFrontmostAttribute, true)
-                previousApp.activate(options: [])
-            }
+            sourceFixture?.terminate()
+            backdrop.orderOut(nil)
+            if let foreground, let originalWindow { _ = service.controller.reveal(originalWindow, app: foreground) }
+            else { foreground?.activate(options: []) }
+            await pause(0.3)
             move(to: previousPointer)
             exit(result)
         }

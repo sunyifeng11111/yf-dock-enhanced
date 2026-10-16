@@ -20,4 +20,15 @@ with open(sys.argv[1], 'wb') as f:
     }, f)
 PY
 codesign --force --sign - --identifier dev.yifeng.DockEnhancedFixture "$fixture_dir"
-"$binary_dir/DockEnhanced" --integration-check "$fixture_dir"
+source_fixture_dir="$project_dir/.build/Dock Enhanced Source.app"
+mkdir -p "$source_fixture_dir/Contents/MacOS"
+cp "$binary_dir/DockEnhanced" "$source_fixture_dir/Contents/MacOS/DockEnhanced"
+python3 - "$fixture_dir/Contents/Info.plist" "$source_fixture_dir/Contents/Info.plist" <<'PYPLIST'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as f: source = plistlib.load(f)
+source['CFBundleIdentifier'] = 'dev.yifeng.DockEnhancedSourceFixture'
+source['CFBundleName'] = 'Dock Enhanced Source'
+with open(sys.argv[2], 'wb') as f: plistlib.dump(source, f)
+PYPLIST
+codesign --force --sign - --identifier dev.yifeng.DockEnhancedSourceFixture "$source_fixture_dir"
+"$binary_dir/DockEnhanced" --integration-check "$fixture_dir" "$source_fixture_dir"
