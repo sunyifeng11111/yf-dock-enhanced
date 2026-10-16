@@ -1,6 +1,5 @@
 import AppKit
 import QuartzCore
-import ObjectiveC
 
 func appKitPoint(_ quartzPoint: CGPoint) -> CGPoint {
     CGPoint(x: quartzPoint.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - quartzPoint.y)
@@ -225,43 +224,20 @@ final class PreviewPanel {
 }
 
 func makeWindowPreviewBackground(content: NSView) -> NSView {
-    if #available(macOS 26.0, *) {
-        let glass = NSGlassEffectView(frame: content.frame)
-        glass.style = .clear
-        glass.tintColor = nil
-        glass.cornerRadius = 32
-        glass.contentView = content
-        applyMacOS27FloatingMaterial(to: glass)
-        return glass
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame: content.frame)
+            glass.style = .regular
+            glass.cornerRadius = 32
+            glass.contentView = content
+            return glass
+        }
+        let blur = NSVisualEffectView(frame: content.frame)
+        blur.material = .popover
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.cornerRadius = 32
+        blur.layer?.masksToBounds = true
+        blur.addSubview(content)
+        return blur
     }
-    let blur = NSVisualEffectView(frame: content.frame)
-    blur.material = .popover
-    blur.blendingMode = .behindWindow
-    blur.state = .active
-    blur.wantsLayer = true
-    blur.layer?.cornerRadius = 32
-    blur.layer?.masksToBounds = true
-    blur.addSubview(content)
-    return blur
-}
-
-/// macOS 27's thin floating treatment is not a public Style case. Confine the
-/// runtime parameter to the validated OS family and ABI; otherwise keep clear.
-@available(macOS 26.0, *)
-private func applyMacOS27FloatingMaterial(to glass: NSGlassEffectView) {
-    guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27 else { return }
-    let setter = NSSelectorFromString("set_variant:")
-    let getter = NSSelectorFromString("_variant")
-    guard let setMethod = class_getInstanceMethod(NSGlassEffectView.self, setter),
-          let getMethod = class_getInstanceMethod(NSGlassEffectView.self, getter),
-          let setEncoding = method_getTypeEncoding(setMethod), let getEncoding = method_getTypeEncoding(getMethod),
-          String(cString: setEncoding) == "v24@0:8q16", String(cString: getEncoding) == "q16@0:8" else { return }
-    typealias ReadVariant = @convention(c) (AnyObject, Selector) -> Int
-    typealias SetVariant = @convention(c) (AnyObject, Selector, Int) -> Void
-    let read = unsafeBitCast(method_getImplementation(getMethod), to: ReadVariant.self)
-    guard read(glass, getter) == 2 else { return }
-    let set = unsafeBitCast(method_getImplementation(setMethod), to: SetVariant.self)
-    let floatingVariant = 11
-    set(glass, setter, floatingVariant)
-    if read(glass, getter) != floatingVariant { glass.style = .clear }
-}

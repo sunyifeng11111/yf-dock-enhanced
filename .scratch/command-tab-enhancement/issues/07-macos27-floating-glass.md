@@ -3,7 +3,7 @@
 Type: visual improvement
 Status: ready-for-agent
 Blocked by: None
-Resolution: implemented and installed as 0.6.2/build13; installed-app reauthorization pending
+Resolution: superseded by user-requested restoration of 0.6.1 appearance; installed as 0.6.3/build14
 
 ## Request
 
@@ -46,3 +46,6 @@ Resolution: implemented and installed as 0.6.2/build13; installed-app reauthoriz
 ## Comments
 
 - 2026-10-16：按用户反馈调整系统材质并完成同背景参考拍摄。未更改 AGENTS.md、系统权限或用户偏好。
+
+- 2026-10-16：用户要求“恢复之前的样式”。两种面板恢复 0.6.1 的公开 regular 材质，移除系统专用运行时变体；保留 MainActor 崩溃修复、窗口切换功能及历史验证工具。以 0.6.3/build14 打包，避免版本倒退。上方截图与材质结论为 0.6.2 历史记录。
+- 2026-10-16 恢复验证：PreviewPanel.swift 与 0.6.1 提交 221af53 完全一致；PreviewImages.swift 的主线程修复仍与该提交一致。Debug／Release 构建通过，真实截图更新可见卡片的主线程回归通过（1 次）。安装包签名校验通过；安装文件与打包文件哈希一致。旧版 0.6.2 备份在 `~/Library/Application Support/Dock Enhanced/Backups/0.6.2-20261016-175104/Dock Enhanced.app`。已启动安装版并从设置确认版本 0.6.3，当前显示“等待辅助功能授权”；未修改系统权限。
