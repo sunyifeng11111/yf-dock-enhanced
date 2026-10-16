@@ -50,7 +50,7 @@ Requires **macOS 14 or later**. The downloadable DMG targets Apple Silicon (arm6
 
 1. Download the Apple Silicon `.dmg` from [GitHub Releases](https://github.com/sunyifeng11111/yf-dock-enhanced/releases/latest).
 2. Open the DMG and drag **Dock Enhanced.app** to **Applications**, then double-click the app.
-3. Grant permissions under **General → System Permissions** in the app’s settings (shown as **通用 → 系统权限** in the current Chinese interface).
+3. Grant permissions under **General → System Permissions** in the app’s settings (shown as **通用 → 系统权限** in the Chinese interface).
 
 | Permission | Purpose |
 | --- | --- |
@@ -84,9 +84,13 @@ Open settings from the menu bar. The three pages cover:
 
 - **Dock Features (Dock 功能)**: Toggle hover previews and click-to-minimize/restore independently, and adjust the preview delay.
 - **Window Switching (窗口切换)**: Toggle Command+Tab enhancement and check shortcut and thumbnail availability. Turning it off restores the system Command+Tab behavior.
-- **General (通用)**: Manage launch at login, menu bar icon visibility, and system permissions.
+- **General (通用)**: Choose the app language, and manage launch at login, menu bar icon visibility, and system permissions.
 
 If you hide the menu bar icon, search for `Dock Enhanced` in Spotlight or reopen it from Applications to access settings. The bottom of the settings sidebar includes a quit button.
+
+### Interface language
+
+Choose **Settings → General → Language → App Language** to switch between **English** and **简体中文**. The change applies immediately to settings, the menu bar, and app-owned preview and switcher messages, and is saved for the next launch. On first launch, Chinese system languages use Simplified Chinese; other system languages use English. App names, window titles, and macOS permission dialogs keep their original or system language.
 
 ## Privacy and compatibility
 

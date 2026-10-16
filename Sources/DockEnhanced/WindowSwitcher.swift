@@ -327,7 +327,7 @@ private final class SwitcherCard: NSView {
     private let thumbnail = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let appName = NSTextField(labelWithString: "")
-    private let minimizedBadge = NSTextField(labelWithString: "已最小化")
+    private let minimizedBadge = NSTextField(labelWithString: L("已最小化"))
     private let appIcon = NSImageView()
     private var hasPreview = false
     init(candidate: SwitcherCandidate, frame: CGRect) {
@@ -354,7 +354,7 @@ private final class SwitcherCard: NSView {
         appName.textColor = .secondaryLabelColor
         appName.lineBreakMode = .byTruncatingTail
         addSubview(appName)
-        minimizedBadge.frame = CGRect(x: frame.width - 66, y: 166, width: 58, height: 16)
+        minimizedBadge.frame = CGRect(x: frame.width - 78, y: 166, width: 70, height: 16)
         minimizedBadge.font = .systemFont(ofSize: 10)
         minimizedBadge.textColor = .secondaryLabelColor
         minimizedBadge.alignment = .right
@@ -367,20 +367,21 @@ private final class SwitcherCard: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     func update(candidate: SwitcherCandidate) {
         self.candidate = candidate
-        title.stringValue = candidate.window.title.isEmpty ? "无标题窗口" : candidate.window.title
-        appName.stringValue = candidate.app.localizedName ?? "应用"
+        minimizedBadge.stringValue = L("已最小化")
+        title.stringValue = candidate.window.title.isEmpty ? L("无标题窗口") : candidate.window.title
+        appName.stringValue = candidate.app.localizedName ?? L("应用")
         appIcon.image = candidate.app.icon
         let minimized = candidate.window.state.minimized
         minimizedBadge.isHidden = !minimized
-        appName.frame = CGRect(x: 34, y: 165, width: frame.width - (minimized ? 108 : 46), height: 18)
-        setAccessibilityLabel("\(appName.stringValue) · \(title.stringValue)\(minimized ? " · 已最小化" : "")")
-        setAccessibilityHelp(minimized && hasPreview ? "已最小化 · 缓存画面" : "选择并切换此窗口")
+        appName.frame = CGRect(x: 34, y: 165, width: frame.width - (minimized ? 120 : 46), height: 18)
+        setAccessibilityLabel("\(appName.stringValue) · \(title.stringValue)\(minimized ? L(" · 已最小化") : "")")
+        setAccessibilityHelp(minimized && hasPreview ? L("已最小化 · 缓存画面") : L("选择并切换此窗口"))
     }
     func update(image: NSImage?) {
         hasPreview = image != nil
         thumbnail.image = image ?? candidate.app.icon
         thumbnail.frame = image == nil ? CGRect(x: (frame.width - 64) / 2, y: 39, width: 64, height: 64) : CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
-        setAccessibilityHelp(candidate.window.state.minimized && image != nil ? "已最小化 · 缓存画面" : "选择并切换此窗口")
+        setAccessibilityHelp(candidate.window.state.minimized && image != nil ? L("已最小化 · 缓存画面") : L("选择并切换此窗口"))
     }
     func select(_ selected: Bool) {
         guard let layer else { return }
@@ -392,7 +393,7 @@ private final class SwitcherCard: NSView {
         animation.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
         layer.add(animation, forKey: "selection")
         layer.backgroundColor = color
-        setAccessibilityValue(selected ? "已选中" : "")
+        setAccessibilityValue(selected ? L("已选中") : "")
     }
 }
 
@@ -411,7 +412,7 @@ private func makeSwitcherPanel(title: String, ignoresMouseEvents: Bool = false) 
 }
 
 final class WindowSwitcherPanel {
-    let panel = makeSwitcherPanel(title: "窗口切换")
+    let panel = makeSwitcherPanel(title: L("窗口切换"))
     private var cards: [SwitcherWindowID: SwitcherCard] = [:]
     private var images: [SwitcherWindowID: NSImage] = [:]
     private var scroll: NSScrollView?
@@ -427,6 +428,7 @@ final class WindowSwitcherPanel {
 
     func prepareContent(candidates: [SwitcherCandidate], screen: NSScreen?, availableFrame: CGRect? = nil) {
         guard !candidates.isEmpty else { return }
+        panel.setAccessibilityTitle(L("窗口切换"))
         windowIDs = candidates.map(\.id)
         prepare(candidates: candidates, screen: screen, availableFrame: availableFrame)
         let available = availableFrame ?? screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
@@ -498,19 +500,21 @@ final class WindowSwitcherPanel {
 
 /// Nonactivating, bounded feedback that never substitutes another window.
 final class WindowSwitcherFailureNotice {
-    let panel = makeSwitcherPanel(title: "无法切换到此窗口，请重试", ignoresMouseEvents: true)
+    let panel = makeSwitcherPanel(title: L("无法切换到此窗口，请重试"), ignoresMouseEvents: true)
+    private let label = NSTextField(labelWithString: "")
     init() {
-        let content = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 58))
-        let label = NSTextField(labelWithString: "无法切换到此窗口，请重试")
+        let content = NSView(frame: CGRect(x: 0, y: 0, width: 380, height: 58))
         label.font = .systemFont(ofSize: 13)
         label.alignment = .center
-        label.frame = CGRect(x: 16, y: 20, width: 268, height: 18)
+        label.frame = CGRect(x: 16, y: 20, width: 348, height: 18)
         content.addSubview(label)
         panel.contentView = makeWindowPreviewBackground(content: content)
     }
     func show(screen: NSScreen?) {
+        label.stringValue = L("无法切换到此窗口，请重试")
+        panel.setAccessibilityTitle(label.stringValue)
         let available = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
-        panel.setFrame(CGRect(x: available.midX - 150, y: available.midY - 29, width: 300, height: 58), display: false)
+        panel.setFrame(CGRect(x: available.midX - 190, y: available.midY - 29, width: 380, height: 58), display: false)
         panel.orderFrontRegardless()
     }
 }

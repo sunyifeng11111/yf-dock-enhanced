@@ -40,12 +40,12 @@ func checkPreviewSettings() async -> Int32 {
     } catch { require(false, "a separate application process could verify saved feature choices") }
     reopened.switcherEnabled = true
     reopened.running = true
-    require(reopened.switcherStatus == "需要辅助功能权限 · 系统 Command+Tab 仍可用", "a running Dock service does not imply switcher control permission")
+    require(reopened.switcherStatus == L("需要辅助功能权限 · 系统 Command+Tab 仍可用"), "a running Dock service does not imply switcher control permission")
     reopened.accessibilityGranted = true
     reopened.switcherAvailable = true
-    require(reopened.switcherStatus == "增强可用 · 图标和标题可用（未授权屏幕录制）", "missing image permission leaves window switching available")
+    require(reopened.switcherStatus == L("增强可用 · 图标和标题可用（未授权屏幕录制）"), "missing image permission leaves window switching available")
     reopened.captureGranted = true
-    require(reopened.switcherStatus == "增强可用 · 窗口缩略图已启用", "settings distinguishes full enhancement from icon-only switching")
+    require(reopened.switcherStatus == L("增强可用 · 窗口缩略图已启用"), "settings distinguishes full enhancement from icon-only switching")
     let sample = AppWindow(element: AXUIElementCreateApplication(getpid()), key: WindowKey(pid: getpid(), id: 501),
                            title: "Controlled image", frame: CGRect(x: 0, y: 0, width: 400, height: 300),
                            state: WindowState(id: 501, minimized: false, canMinimize: true, fullScreen: false))

@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let preferences = SettingsModel()
     let loginItem = LoginItem()
     private var permissionTimer: Timer?
+    private var languageObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchEvent = NSAppleEventManager.shared().currentAppleEvent
@@ -26,23 +27,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         stateItem = NSMenuItem(title: "Dock Enhanced", action: nil, keyEquivalent: "")
         menu.addItem(stateItem)
-        previewItem = NSMenuItem(title: "悬停预览", action: #selector(togglePreview), keyEquivalent: "")
+        previewItem = NSMenuItem(title: L("悬停预览"), action: #selector(togglePreview), keyEquivalent: "")
         previewItem.target = self
         menu.addItem(previewItem)
-        clickItem = NSMenuItem(title: "点击收起 / 恢复", action: #selector(toggleClick), keyEquivalent: "")
+        clickItem = NSMenuItem(title: L("点击收起 / 恢复"), action: #selector(toggleClick), keyEquivalent: "")
         clickItem.target = self
         menu.addItem(clickItem)
-        switcherItem = NSMenuItem(title: "Command+Tab 增强", action: #selector(toggleSwitcher), keyEquivalent: "")
+        switcherItem = NSMenuItem(title: L("Command+Tab 增强"), action: #selector(toggleSwitcher), keyEquivalent: "")
         switcherItem.target = self
         menu.addItem(switcherItem)
-        let help = NSMenuItem(title: "设置…", action: #selector(showHelp), keyEquivalent: "")
+        let help = NSMenuItem(title: L("设置…"), action: #selector(showHelp), keyEquivalent: "")
         help.target = self
         menu.addItem(help)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 Dock Enhanced", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L("退出 Dock Enhanced"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
+        languageObserver = NotificationCenter.default.addObserver(forName: Localization.didChange, object: Localization.shared, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.updateStatus()
+            self.helpWindow?.title = L("Dock Enhanced · 设置")
+            self.service.preview.hide(animated: false)
+            self.service.switcher.interrupt()
+        }
         statusItem.isVisible = !preferences.hideMenuBarIcon
         preferences.onMenuBarVisibilityChange = { [weak self] hidden in self?.statusItem.isVisible = !hidden }
         service.onStatusChanged = { [weak self] in self?.updateStatus() }
@@ -72,6 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         permissionTimer?.invalidate()
+        if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) }
         service.stop()
     }
 
@@ -84,6 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatus() {
+        previewItem?.title = L("悬停预览")
+        clickItem?.title = L("点击收起 / 恢复")
+        switcherItem?.title = L("Command+Tab 增强")
+        for item in statusItem?.menu?.items ?? [] {
+            if item.action == #selector(showHelp) { item.title = L("设置…") }
+            if item.action == #selector(quit) { item.title = L("退出 Dock Enhanced") }
+        }
         preferences.switcherAvailable = service.switcherAvailable
         preferences.switcherUnavailableReason = service.switcherUnavailableReason
         preferences.running = service.running
@@ -105,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 780, height: height),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.contentMinSize = NSSize(width: 760, height: 500)
-        window.title = "Dock Enhanced · 设置"
+        window.title = L("Dock Enhanced · 设置")
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.center()

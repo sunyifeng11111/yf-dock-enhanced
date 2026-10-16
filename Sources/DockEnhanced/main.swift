@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 
 #if DEBUG
+if CommandLine.arguments.contains("--check-localization") { exit(checkLocalization()) }
 if CommandLine.arguments.contains("--diagnose") {
     print("Accessibility=\(AXIsProcessTrusted()) ScreenCapture=\(CGPreflightScreenCaptureAccess())")
     exit(0)

@@ -19,11 +19,13 @@ with open(sys.argv[1], 'wb') as f:
         'CFBundleName': 'Dock Enhanced',
         'CFBundleDisplayName': 'Dock Enhanced',
         'CFBundlePackageType': 'APPL',
-        'CFBundleShortVersionString': '0.6.5',
-        'CFBundleVersion': '16',
+        'CFBundleShortVersionString': '0.6.6',
+        'CFBundleVersion': '17',
         'CFBundleIconFile': 'AppIcon',
         'LSMinimumSystemVersion': '14.0',
         'LSUIElement': True,
+        'CFBundleDevelopmentRegion': 'en',
+        'CFBundleLocalizations': ['en', 'zh-Hans'],
         'NSHighResolutionCapable': True
     }, f)
 PY

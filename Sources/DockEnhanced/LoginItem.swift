@@ -4,7 +4,8 @@ import Combine
 final class LoginItem: ObservableObject {
     @Published private(set) var enabled = false
     @Published private(set) var needsApproval = false
-    @Published private(set) var error: String?
+    @Published private var errorDescription: String?
+    var error: String? { errorDescription.map { L("无法更新登录项：") + $0 } }
 
     init() { refresh() }
 
@@ -15,7 +16,7 @@ final class LoginItem: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) {
-        error = nil
+        errorDescription = nil
         do {
             if enabled {
                 if SMAppService.mainApp.status != .enabled && SMAppService.mainApp.status != .requiresApproval {
@@ -25,7 +26,7 @@ final class LoginItem: ObservableObject {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            self.error = "无法更新登录项：\(error.localizedDescription)"
+            self.errorDescription = error.localizedDescription
         }
         refresh()
     }

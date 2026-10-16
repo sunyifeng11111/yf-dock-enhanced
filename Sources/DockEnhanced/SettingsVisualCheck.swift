@@ -16,7 +16,8 @@ final class SettingsVisualCheck: NSObject, NSApplicationDelegate {
             let suite = "dev.yifeng.DockEnhanced.settings-visual." + UUID().uuidString
             let defaults = UserDefaults(suiteName: suite)!
             NSApp.applicationIconImage = NSImage(contentsOfFile: FileManager.default.currentDirectoryPath + "/assets/AppIcon.icns")
-            let model = SettingsModel(defaults: defaults)
+            let localization = Localization(defaults: defaults, preferredLanguages: ["zh-Hans"])
+            let model = SettingsModel(defaults: defaults, localization: localization)
             model.accessibilityGranted = true
             model.captureGranted = false
             model.running = true
@@ -42,13 +43,24 @@ final class SettingsVisualCheck: NSObject, NSApplicationDelegate {
                 try require(!model.switcherEnabled && !SettingsModel(defaults: defaults).switcherEnabled, "actual settings toggle disables enhancement and persists in an isolated domain")
                 click(window: window, x: 710, fromTop: 129)
                 await pause(0.2)
-                try require(model.switcherEnabled && model.switcherStatus.contains("图标和标题"), "actual settings toggle restores icon/title switching with capture unavailable")
+                try require(model.switcherEnabled && model.switcherStatus == localization.text("增强可用 · 图标和标题可用（未授权屏幕录制）"), "actual settings toggle restores icon/title switching with capture unavailable")
                 window.appearance = NSAppearance(named: .darkAqua)
                 await pause(0.3)
                 try saveControlledCompositor(window, name: "settings-switcher-dark")
                 click(window: window, x: 88, fromTop: 171)
                 await pause(0.3)
                 try saveControlledCompositor(window, name: "settings-general-dark")
+                localization.language = .english
+                await pause(0.3)
+                try require(Localization(defaults: defaults, preferredLanguages: ["zh-Hans"]).language == .english,
+                            "language choice persists in the isolated domain")
+                try saveControlledCompositor(window, name: "general-en", prefix: "localization-")
+                click(window: window, x: 88, fromTop: 131)
+                await pause(0.3)
+                try saveControlledCompositor(window, name: "switcher-en", prefix: "localization-")
+                click(window: window, x: 88, fromTop: 91)
+                await pause(0.3)
+                try saveControlledCompositor(window, name: "dock-en", prefix: "localization-")
                 window.close(); window.makeKeyAndOrderFront(nil)
                 await pause(0.2)
                 try require(window.isVisible && model.switcherEnabled, "settings window reopens with its saved feature choice")

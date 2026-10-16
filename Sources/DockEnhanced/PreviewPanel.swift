@@ -78,7 +78,7 @@ final class PreviewCard: NSButton {
 
     func update(image: NSImage?, icon: NSImage?) {
         thumbnail.image = image ?? icon
-        let help = snapshot.state.minimized ? (image == nil ? "已最小化 · 点击恢复" : "已最小化 · 缓存画面") : "点击切换窗口"
+        let help = snapshot.state.minimized ? (image == nil ? L("已最小化 · 点击恢复") : L("已最小化 · 缓存画面")) : L("点击切换窗口")
         setAccessibilityHelp(help)
     }
 
@@ -110,12 +110,13 @@ final class PreviewPanel {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.setAccessibilityTitle("Dock 窗口预览")
+        panel.setAccessibilityTitle(L("Dock 窗口预览"))
     }
 
     var isVisible: Bool { presented }
 
     func show(item: DockItem, windows: [AppWindow], images: PreviewImages) {
+        panel.setAccessibilityTitle(L("Dock 窗口预览"))
         guard !windows.isEmpty else { hide(); return }
         let wasPresented = presented
         transitionGeneration += 1
@@ -143,7 +144,7 @@ final class PreviewPanel {
         position.y = min(max(position.y, available.minY + 8), available.maxY - size.height - 8)
         panel.setFrame(CGRect(origin: position, size: size), display: false)
         let content = NSView(frame: CGRect(origin: .zero, size: size))
-        let header = NSTextField(labelWithString: item.app.localizedName ?? "应用")
+        let header = NSTextField(labelWithString: item.app.localizedName ?? L("应用"))
         header.font = .systemFont(ofSize: 14, weight: .medium)
         header.alignment = .center
         header.frame = CGRect(x: 20, y: 188, width: size.width - 40, height: 20)
