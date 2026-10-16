@@ -2,6 +2,8 @@
 
 Status: ready-for-agent
 
+Resolution: completed under the accepted discovery boundary; implementation and scoped validation integrated on `codex/command-tab-enhancement`. Unverified environments remain explicitly listed.
+
 日期：2026-10-16。第一版产品范围已由用户整体确认；本规格的行为测试与真实系统验证方案也已单独确认。此状态表示需求可供后续实施使用，不表示技术可行性或实现已经验证。
 
 ## Problem Statement
@@ -267,3 +269,5 @@ Status: ready-for-agent
 - 2026-10-16：用户接受以可重复行为场景为主要验证入口、真实 macOS 窗口检查补充系统兼容性与视觉结果的方案。
 - 2026-10-16：正式规格保存到本地需求目录，标记 ready-for-agent；新功能尚未实现或运行验证。
 - 2026-10-16：实现期间，用户明确回复“接受此边界并明确说明”，接受全屏状态启动时未识别普通窗口可能不被 macOS 提供的发现边界；要求使用说明写明先退出全屏识别窗口后再进入的方式。
+
+- 2026-10-16：后续 implement-spec 阶段已完成五项任务及双轴审查修复，整合到 `codex/command-tab-enhancement`。实现与 62 条故事证据见[整体验收](validation/05-integrated-validation.md)，审查见[独立审查与复核](validation/06-code-review.md)及[修复验证](validation/07-review-fixes.md)。原规格中的“本次只编写规格”是规格发布阶段的历史范围；后续实现、原生验证及源码包已由 implement-spec 请求授权，未替换已安装应用或发布。未覆盖环境和原 Dock 基线偶发失败保留如实记录，不等同于全部系统兼容性通过。

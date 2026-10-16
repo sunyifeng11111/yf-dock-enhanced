@@ -6,7 +6,7 @@ Blocked by: 01
 
 Status: ready-for-agent
 
-Resolution: implemented; host interaction checks passed, extended display/appearance matrix pending final validation
+Resolution: completed; integrated validation and review fixes recorded, with unavailable environments explicitly disclosed
 
 ## Acceptance criteria
 
@@ -50,3 +50,6 @@ Resolution: implemented; host interaction checks passed, extended display/appear
 - 原生展示测量：最初 40 卡片在计时结束后创建，实测 215ms；将视图准备移至输入回调返回后的展示等待期后，后两次实测 **124ms／129ms**（每 5ms 观察可见性）。这是当前受控环境测量，不代表慢 AX、任意应用数量或所有系统版本的延迟上界。
 - 环境：macOS 27.2 (26B5112a)，Apple Silicon，已有辅助功能／屏幕录制授权。桌面合成图 `/tmp/dock-switcher-03-composed.png` 只包含受控夹具背景与受控卡片，已观察多行玻璃边缘、中性选中、居中标题及纵向滚动。一次中间检查因测试保留旧 scroll-view 引用崩溃，已修复引用、清理夹具及松开 Command，再完整重跑通过；最终夹具退出并恢复测试前前台与鼠标。
 - 未验证项：没有第二显示器，工作窗口与鼠标分处不同显示器、屏幕移除和不同缩放比例不可用；macOS 14–26、深色外观、减少动态效果系统开关、宽／竖缩略图及与原小预览同场的完整视觉矩阵留给 05。没有更改系统权限、安装／替换已安装应用，亦未把 02 的桌面／全屏能力登记为本项通过。
+
+
+- 2026-10-16：05 已完成可运行的联合视觉／原生检查，最终审查修复已合入。见[62 条故事矩阵](../validation/05-integrated-validation.md)与[审查修复](../validation/07-review-fixes.md)。未勾选的复合验收项含未覆盖硬件／系统或未执行系统设置检查，继续保留，不能理解为这些环境已通过。

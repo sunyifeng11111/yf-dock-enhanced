@@ -35,4 +35,31 @@ Initial findings: Standards — 0 documented violations, 2 duplication judgments
 
 ## Resolution
 
-All five findings were assigned to a single implementer on `codex/command-tab-review-fixes`. Fix and validation evidence will be recorded after integration.
+All five findings were fixed by a single implementer on `codex/command-tab-review-fixes`, fixed tip `431587b4b663a272eec35014a3514c4d57722a03`, integrated by `794faf802a847f9924946c36b5551e1af1a49136`. See [fixes and red→green evidence](07-review-fixes.md).
+
+### Standards follow-up
+
+定向复核：通过，无剩余行动项。
+
+固定修复 tip：431587b4b663a272eec35014a3514c4d57722a03；比较范围 be9befb...431587b。仅复核原报告三项，未扩大范围，未运行原生 UI。
+
+1. AX 身份清理：Accessibility.swift 仅在具体窗口的实际 AXRole 查询返回 invalidUIElement 后移除对应 CFEqual 身份。AXWindows 未报告窗口不会删除；owner 查询失败/超时提前返回时不会清理，窗口角色查询的其他失败也不清理。保留 warm full-screen 身份，单调递增 ID 不复用。原先关闭窗口长期积累的问题已解决。
+2. 共享夹具构建：两个检查脚本都调用 scripts/lib/switcher-fixtures.sh 的 build_switcher_fixtures；原有复制、plist 字段、签名及 A/B 路径保持一致。原重复逻辑已消除。
+3. 面板工厂：两个面板均使用 makeSwitcherPanel；公共配置集中，标题分别传入，失败提示显式 ignoresMouseEvents=true，正常选择面板保持 false。原重复逻辑已消除。
+
+证据复核：读取固定 tip 的 validation/07-review-fixes.md 与 WindowSwitcherReviewCheck.swift。新增真实 AX 检查覆盖八次创建/关闭后注册表回到基线、八个退休身份不复用、owner timeout 保留身份，以及成功 AXWindows 查询遗漏普通窗口的全屏场景仍保留两个有效身份。记录报告最终检查通过；本次结论基于代码及该既有证据，未独立重跑原生检查。
+
+
+### Spec follow-up
+
+# Spec review follow-up
+
+Reviewed fixed tip `431587b4b663a272eec35014a3514c4d57722a03` against `be9befb`, limited to the two original spec findings. Both are resolved; no remaining action items in this scope.
+
+- **Empty healthy inventory:** The native switcher now cancels obsolete work, consumes the Command+Tab press, and retains the Tab release for consumption. It creates no selection or empty panel. `DockService.handle` still calls this handler only while `switcherAvailable` and Accessibility access are true, so disabled/unavailable enhancement continues to pass the native shortcut through. The focused check covers press/release consumption, unchanged exact source focus, hidden panel and disabled fallback.
+- **Same-display geometry change:** The screen observer resolves the original host by display identity, updates that host and its usable frame, and renders the existing frozen session. Panel rebuilding now also checks usable-frame changes, recomputes columns, bounds and centering, and scrolls the selected card into view. Neither candidate order nor selected identity is changed; removal still cancels. The focused check exercises a 3→2-column reflow with the same host/order/selection/source focus and a visible selected card.
+
+Validation record `07-review-fixes.md` accurately distinguishes the injected usable-frame observation from a physical display change and records red/green focused checks. This follow-up inspected source and evidence only; it did not run native UI or change system state. It makes no additional multi-display or scale-compatibility claim.
+
+
+Final findings: Standards — 0 remaining actionable findings; Spec — 0 remaining actionable findings. Original 2 duplication judgments and all 3 P2 concerns are resolved. Environment gaps and original Dock runtime intermittency remain disclosed in validation 05/07.

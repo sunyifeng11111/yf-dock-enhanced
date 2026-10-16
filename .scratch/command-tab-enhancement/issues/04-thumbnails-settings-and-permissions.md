@@ -6,7 +6,7 @@ Blocked by: 01
 
 Status: ready-for-agent
 
-Resolution: implementation and scoped checks complete; final integrated visual/Dock regression pending 05
+Resolution: completed; integrated validation and review fixes recorded, with unavailable environments explicitly disclosed
 
 ## Acceptance criteria
 
@@ -48,3 +48,6 @@ Resolution: implementation and scoped checks complete; final integrated visual/D
 - 2026-10-16：将集成分支 `26d3ccb` 合入本工作分支（合并提交 `751a878`），保留 03 的最终网格、交互和相同图片桥，解决基本面板重叠。组合版本 Debug／Release 构建通过；最终 DockCoreChecks **46 checks, 0 failures**。无界面检查扩展真实子进程读取隔离持久化域，显式关闭增强及旧 Dock 选择跨进程保留，最终 **16 checks, 0 failures**。
 - 原生共享服务检查：在独占桌面时段运行 `--check-feature-services`，**39 checks passed**。真实创建／停用事件监听，覆盖三开关全部八组合及重新读取保存值，独立判断实际键盘接管与图像消费者；关闭悬停保留增强图片、关闭增强保留悬停图片、仅点击和全关清理均通过。通过 03 实际原生卡片的可见视图验证先显示图标／标题、异步补图、撤销图像能力后可见图与缓存同时清空且卡片身份／面板仍保持。最后隐藏合成测试卡片、停止服务；未投递输入，未捕获用户桌面像素，未更改系统授权或已安装应用。
 - 权限证据边界：本机预检 Accessibility=true、ScreenCapture=true；录屏缺失、撤销、恢复及在途失效由真实图像模块配合受控的操作系统截图权限／返回边界验证，**不是**实际撤销 macOS 已有授权的通过声明。原生检查中的图片也是合成测试图，不能替代 ScreenCaptureKit 实际截图回归。实际设置新页视觉／菜单同步操作、自启／重开，以及原 Dock 全面截图／操作回归交由 05 最终集成时段；第九条验收尚未据此勾选。不同系统版本和真实权限变更仍未验证。
+
+
+- 2026-10-16：05 已完成可运行的联合视觉／原生检查，最终审查修复已合入。见[62 条故事矩阵](../validation/05-integrated-validation.md)与[审查修复](../validation/07-review-fixes.md)。未勾选的复合验收项含未覆盖硬件／系统或未执行系统设置检查，继续保留，不能理解为这些环境已通过。

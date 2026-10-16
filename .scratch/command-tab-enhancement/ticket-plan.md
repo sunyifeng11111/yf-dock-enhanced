@@ -124,10 +124,19 @@
 - [04：完成缩略图、独立设置与权限降级](issues/04-thumbnails-settings-and-permissions.md)；Blocked by: 01；Status: ready-for-agent。
 - [05：处理异常并完成整体验收](issues/05-recovery-and-integrated-validation.md)；Blocked by: 02, 03, 04；Status: ready-for-agent。
 
-当前只有 01 无前置任务；其余任务的 ready-for-agent 表示范围清楚，不表示阻塞条件已完成。依赖仍按以上关系推进。所有验收项均未勾选，本次未开始实现。
+发布时仅 01 无前置任务；ready-for-agent 表示范围清楚，依赖按以上关系推进。以下实施结果更新了最初未开始实现的状态。
 
 ## Comments
 
 - 2026-10-16：用户认为原 10 项粒度过细，要求合并。
 - 2026-10-16：用户批准五项方案，回复“按此拆分”。
 - 2026-10-16：已逐项发布 5 个 ready-for-agent 本地任务，依赖关系与批准方案一致；未改动父规格或功能代码。
+
+## 实施结果 — 2026-10-16
+
+五项任务已按依赖顺序完成并合入 `codex/command-tab-enhancement`，各任务的 Resolution 已记录结果；沿用五类 triage Status，不新增 triage 角色。
+
+- 原生最小化／隐藏恢复、40 窗口键鼠切换、异步缩略图、独立设置及故障恢复已有可重复证据。
+- [整体验收和 62 条故事](validation/05-integrated-validation.md)、[独立规范／规格审查](validation/06-code-review.md)、[五项审查修复](validation/07-review-fixes.md)。审查复核无剩余行动项。
+- 0.6.0/build11 源码应用包已生成在 `dist/Dock Enhanced.app`，未自动安装或发布。
+- 已接受的全屏冷启动发现边界、缺少第二物理显示器／双普通桌面等未验证环境，以及原 Dock 已有的运行偶发失败，均保留在验收记录中。未将复合验收项中的未测部分勾成通过。
