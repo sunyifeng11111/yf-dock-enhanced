@@ -42,7 +42,7 @@ final class SettingsModel: ObservableObject {
     var serviceStatus: String {
         guard anyFeatureEnabled else { return "已暂停" }
         guard running else { return accessibilityGranted ? "控制服务未就绪" : "等待辅助功能授权" }
-        if switcherEnabled && !switcherAvailable { return "部分功能可用" }
+        if switcherEnabled && !switcherAvailable { return previewEnabled || clickEnabled ? "部分功能可用" : "窗口切换不可用" }
         return "正在运行"
     }
     var onFeaturesChange: (() -> Void)?
