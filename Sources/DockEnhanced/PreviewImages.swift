@@ -12,6 +12,13 @@ final class PreviewImages {
     var onUpdate: ((WindowKey?) -> Void)?
     private let captureAccess: () -> Bool
     private let capture: Capture
+    private let now: () -> TimeInterval
+    private struct Observation {
+        let minimized: Bool
+        let revision: UUID
+        let readyAfter: TimeInterval
+    }
+    private var observations: [WindowKey: Observation] = [:]
     private var activeCapture: UUID?
     private var order: [WindowKey] = []
     private var generation = 0
@@ -19,8 +26,10 @@ final class PreviewImages {
     private var permissionGranted = true
 
     init(captureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          capture: @escaping Capture = PreviewImages.captureWindows) {
         self.captureAccess = captureAccess
+        self.now = now
         self.capture = capture
     }
 
@@ -37,17 +46,32 @@ final class PreviewImages {
             clear()
             return nil
         }
-        let visible = windows.filter { !$0.state.minimized }
+        // Observe transitions even while another screenshot is suspended. A
+        // visible -> minimized -> visible cycle must also retire the old request.
+        let time = now()
+        for window in windows {
+            let previous = observations[window.key]
+            if previous == nil || previous?.minimized != window.state.minimized {
+                observations[window.key] = Observation(minimized: window.state.minimized, revision: UUID(),
+                    readyAfter: previous?.minimized == true && !window.state.minimized ? time + 0.6 : time)
+            }
+        }
+        let visible = windows.filter {
+            !$0.state.minimized && time >= (observations[$0.key]?.readyAfter ?? .infinity)
+        }
         guard activeCapture == nil, !visible.isEmpty else { return nil }
         let token = UUID()
         activeCapture = token
         let requestedGeneration = generation
+        let revisions = Dictionary(visible.map { ($0.key, observations[$0.key]!.revision) }, uniquingKeysWith: { first, _ in first })
         return Task { @MainActor in
             defer { if self.activeCapture == token { self.activeCapture = nil } }
             let current: @MainActor () -> Bool = { self.generation == requestedGeneration && self.hasConsumers && self.permissionGranted && self.captureAccess() }
             do {
                 try await self.capture(visible, current) { key, image in
-                    guard current() else { return }
+                    guard current(), let revision = revisions[key],
+                          self.observations[key]?.revision == revision,
+                          self.observations[key]?.minimized == false else { return }
                     self.cache[key] = image
                     self.order.removeAll { $0 == key }
                     self.order.append(key)
@@ -70,6 +94,7 @@ final class PreviewImages {
         generation += 1
         activeCapture = nil
         cache.removeAll()
+        observations.removeAll()
         order.removeAll()
         onUpdate?(nil)
     }
@@ -103,6 +128,7 @@ final class PreviewImages {
             guard let capturedWindow = exact.count == 1 ? exact.first :
                     (normalized.count == 1 ? normalized.first : (matches.count == 1 ? matches.first : nil)) else { continue }
             used.insert(capturedWindow.windowID)
+            guard Self.isStableOnScreen(window, id: capturedWindow.windowID) else { continue }
             let filter = SCContentFilter(desktopIndependentWindow: capturedWindow)
             let size = filter.contentRect.size
             guard size.width > 0, size.height > 0 else { continue }
@@ -116,8 +142,22 @@ final class PreviewImages {
             configuration.ignoreShadowsSingleWindow = true
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
             guard isCurrent() else { return }
+            // The inventory and SCWindow are snapshots. Re-read live state after
+            // the await so a minimize animation cannot overwrite the good image.
+            guard Self.isStableOnScreen(window, id: capturedWindow.windowID) else { continue }
             publish(window.key, NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)))
         }
+    }
+
+    private static func isStableOnScreen(_ window: AppWindow, id: CGWindowID) -> Bool {
+        guard (AX.value(window.element, kAXMinimizedAttribute) as Bool?) != true,
+              let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]])?.first,
+              info[kCGWindowIsOnscreen as String] as? Bool == true,
+              let alpha = info[kCGWindowAlpha as String] as? Double, alpha > 0,
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds) else { return false }
+        return abs(frame.minX - window.frame.minX) < 8 && abs(frame.minY - window.frame.minY) < 8 &&
+            abs(frame.width - window.frame.width) < 8 && abs(frame.height - window.frame.height) < 8
     }
 
     private static func normalizedTitle(_ title: String, appName: String) -> String {

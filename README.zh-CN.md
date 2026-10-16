@@ -60,9 +60,9 @@ Dock Enhanced 是一款原生 macOS 窗口工具。把鼠标移到 Dock 图标�
 > [!IMPORTANT]
 > 未授予屏幕录制权限时，窗口切换仍可使用图标和标题；仅使用点击收起／恢复无需该权限。授权后若缩略图仍未出现，请退出并重新打开应用。
 
-当前发布包使用临时签名，尚未经过 Apple 公证，macOS 可能拦截应用或显示安全提示。
+从 **0.6.5** 起，发布包使用固定自签证书。应用尚未经过 Apple 公证，macOS 仍可能拦截下载的应用或显示安全提示。
 
-本地构建使用临时签名，首次运行或重新构建后可能需要重新授权。建议始终从固定的“应用程序”位置运行。
+**从 0.6.4 及更早的临时签名版本升级时，需要重新授权一次**。后续使用同一证书签名的更新旨在保留已有权限；维护者已在本机用独立测试应用验证两个版本的权限保留，其他系统版本仍需验证。建议固定放在“应用程序”，更新前先退出、替换后再打开。使用者无需把签名证书安装到钥匙串。
 
 ## 操作指南
 
@@ -104,10 +104,11 @@ Dock Enhanced 是一款原生 macOS 窗口工具。把鼠标移到 Dock 图标�
 ```sh
 git clone https://github.com/sunyifeng11111/yf-dock-enhanced.git
 cd yf-dock-enhanced
+python3 scripts/setup-signing.py
 scripts/build-app.sh
 ```
 
-生成的应用位于 `dist/Dock Enhanced.app`，将其移入“应用程序”后打开即可。构建脚本通过 SwiftPM 编译、打包图标并执行本地临时签名。
+生成的应用位于 `dist/Dock Enhanced.app`，将其移入“应用程序”后打开即可。构建脚本通过 SwiftPM 编译、打包图标并使用固定本地证书签名。首次创建签名身份还需要 OpenSSL。
 
 ### 打包 DMG
 
@@ -118,7 +119,15 @@ scripts/build-dmg.sh
 脚本构建 Release 应用，在 `dist/` 中生成压缩 DMG，内含应用和“应用程序”快捷方式，同时生成 `.dmg.sha256` 校验文件。将这两个文件上传到 GitHub Release，生成的二进制文件不放入源码仓库。
 
 > [!IMPORTANT]
-> 当前脚本使用临时签名，不进行 Apple 公证。打包为 DMG 不会消除 macOS Gatekeeper 提示；需要公证分发时，应使用 Developer ID Application 证书及 Apple 公证服务。
+> 当前脚本使用固定自签身份，不进行 Apple 公证。打包为 DMG 不会消除 macOS Gatekeeper 提示；需要公证分发时，仍应使用 Developer ID Application 证书及 Apple 公证服务。
+
+### 保持签名身份稳定
+
+每个签名身份只需运行一次 `python3 scripts/setup-signing.py`。再次运行会复用现有身份；构建不会自动退回临时签名。默认私密文件位于仓库之外的 `~/Library/Application Support/Dock Enhanced/Signing/`；可用 `DOCK_ENHANCED_SIGNING_DIR` 指定其他私密位置。
+
+请私下备份整个目录，包含证书、私钥、钥匙串及密码。每次更新都复用该身份，不要为每个版本或每次 CI 运行重新生成。不要提交这些文件或上传到 Release。初始化只创建独立钥匙串，不修改系统证书信任设置。
+
+自行编译会生成不同于官方安装包的身份，在两者间切换可能需要重新授权。丢失或更换签名身份也可能导致重新授权。此机制用于保持应用身份，不能保证系统以后绝不再次询问权限。
 
 ### 项目结构
 

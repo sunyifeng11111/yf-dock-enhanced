@@ -25,4 +25,4 @@ hdiutil create -volname "Dock Enhanced" -srcfolder "$staging_dir" \
 hdiutil verify "$image_path"
 (cd "$project_dir/dist" && shasum -a 256 "${image_name}.dmg" > "${image_name}.dmg.sha256")
 print -r -- "$image_path"
-print -r -- "This image uses the build script's ad hoc signature and is not notarized."
+print -r -- "This image uses the persistent self-signed identity and is not notarized."

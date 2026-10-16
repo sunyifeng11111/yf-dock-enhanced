@@ -61,6 +61,43 @@ func checkPreviewSettings() async -> Int32 {
                               state: WindowState(id: 501, minimized: true, canMinimize: true, fullScreen: false))
     await images.refresh([minimized])?.value
     require(images.cache[minimized.key] === picture, "minimized windows retain the last available image")
+    // Reproduce a screenshot that starts while visible and completes after a
+    // later inventory has observed the window being minimized.
+    let animationGate = ControlledImageCapture()
+    let animationImages = PreviewImages(captureAccess: { true }, capture: animationGate.capture)
+    let stableRequest = animationImages.refresh([sample])
+    await animationGate.waitUntilRequested()
+    animationGate.finish(key: sample.key, image: picture)
+    await stableRequest?.value
+    let animationFrame = NSImage(size: NSSize(width: 40, height: 30))
+    let shrinkingRequest = animationImages.refresh([sample])
+    await animationGate.waitUntilRequested()
+    _ = animationImages.refresh([minimized])
+    animationGate.finish(key: sample.key, image: animationFrame)
+    await shrinkingRequest?.value
+    require(animationImages.cache[sample.key] === picture,
+            "a screenshot completing after minimization cannot replace the stable thumbnail with an animation frame")
+    var captureTime: TimeInterval = 10
+    let restoreGate = ControlledImageCapture()
+    let restoreImages = PreviewImages(captureAccess: { true }, now: { captureTime }, capture: restoreGate.capture)
+    let beforeRestore = restoreImages.refresh([sample])
+    await restoreGate.waitUntilRequested()
+    _ = restoreImages.refresh([minimized])
+    require(restoreImages.refresh([sample]) == nil, "restoring a window waits for its animation to settle")
+    restoreGate.finish(key: sample.key, image: animationFrame)
+    await beforeRestore?.value
+    require(restoreImages.cache.isEmpty, "a minimize/restore cycle rejects the old screenshot even though the window is visible again")
+    captureTime += 0.5
+    require(restoreImages.refresh([sample]) == nil, "capture remains deferred during the restore animation")
+    captureTime += 0.2
+    let afterRestore = restoreImages.refresh([sample])
+    require(afterRestore != nil, "settled windows can refresh their thumbnail again")
+    if let afterRestore {
+        await restoreGate.waitUntilRequested()
+        restoreGate.finish(key: sample.key, image: picture)
+        await afterRestore.value
+    }
+    require(restoreImages.cache[sample.key] === picture, "a fresh stable screenshot replaces the placeholder after restoration")
     var captureAllowed = true
     let gate = ControlledImageCapture()
     let revocable = PreviewImages(captureAccess: { captureAllowed }, capture: gate.capture)

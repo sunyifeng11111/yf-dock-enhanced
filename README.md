@@ -60,9 +60,9 @@ Requires **macOS 14 or later**. The downloadable DMG targets Apple Silicon (arm6
 > [!IMPORTANT]
 > Without Screen Recording permission, the window switcher still works with icons and titles. Click-to-minimize and restore does not require this permission. If thumbnails remain unavailable after granting access, quit and reopen the app.
 
-The current release is ad hoc signed and has not been notarized by Apple. macOS may block the app or display a security warning.
+Starting with **0.6.5**, release builds use a persistent self-signed certificate. The app is not notarized by Apple, so macOS may still block a download or display a security warning.
 
-Local builds use ad hoc signing. You may need to grant permissions again after the first launch or a rebuild. Keep the app in a fixed location in Applications.
+**Upgrading from 0.6.4 or earlier requires granting permissions once more**, because those builds used ad hoc signing. Subsequent updates signed with the same certificate are intended to retain permissions. This was verified with an isolated two-version test on the maintainer’s Mac; other macOS versions may behave differently. Keep the app in Applications, quit it before replacing it, and reopen it after the update. You do not need to install the signing certificate in your keychain.
 
 ## Usage
 
@@ -104,10 +104,11 @@ You need a Swift 6 toolchain, macOS Command Line Tools, and Python 3 for the bui
 ```sh
 git clone https://github.com/sunyifeng11111/yf-dock-enhanced.git
 cd yf-dock-enhanced
+python3 scripts/setup-signing.py
 scripts/build-app.sh
 ```
 
-The app is generated at `dist/Dock Enhanced.app`. Move it to Applications and open it. The script builds with SwiftPM, bundles the icon, and applies an ad hoc signature.
+The app is generated at `dist/Dock Enhanced.app`. Move it to Applications and open it. The script builds with SwiftPM, bundles the icon, and signs with your persistent local certificate. OpenSSL is needed for the one-time signing setup.
 
 ### Package a DMG
 
@@ -118,7 +119,15 @@ scripts/build-dmg.sh
 This builds the Release app and creates a compressed DMG in `dist/`, containing the app and an Applications shortcut. A `.dmg.sha256` checksum file is generated alongside it. Upload both files as GitHub Release assets; keep generated binaries out of the source repository.
 
 > [!IMPORTANT]
-> The current script uses ad hoc signing and does not notarize the app. Packaging it as a DMG does not remove macOS Gatekeeper warnings. For notarized distribution, use a Developer ID Application certificate and Apple's notarization service.
+> The script uses a fixed self-signed identity and does not notarize the app. Packaging it as a DMG does not remove macOS Gatekeeper warnings. Developer ID signing and Apple's notarization service are still needed for notarized distribution.
+
+### Keep the signing identity stable
+
+Run `python3 scripts/setup-signing.py` once per signing identity. Later runs reuse it; builds refuse to fall back to ad hoc signing. By default, private signing material lives outside the repository at `~/Library/Application Support/Dock Enhanced/Signing/`. Set `DOCK_ENHANCED_SIGNING_DIR` to use another private location.
+
+Privately back up the entire directory, including the certificate, private key, keychain, and its password. Reuse that identity for every update; do not recreate it for each version or CI run. Never commit these files or upload them to Releases. Setup creates an isolated keychain without changing system certificate trust.
+
+Building your own copy creates a different identity from official downloads. Switching between them may require authorization again. Losing or changing the signing identity can also require new authorization. This mechanism preserves app identity; it does not guarantee that macOS will never request consent again.
 
 ### Project structure
 

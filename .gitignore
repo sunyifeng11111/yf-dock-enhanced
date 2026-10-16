@@ -3,6 +3,16 @@ dist/
 .DS_Store
 *.xcuserstate
 .swiftpm/
+
+# Signing credentials must never be committed.
+*.p12
+*.pfx
+*.keychain-db
+private-key.pem
+keychain-password
+
+__pycache__/
+
 .scratch/
 .vscode/
 *.dmg

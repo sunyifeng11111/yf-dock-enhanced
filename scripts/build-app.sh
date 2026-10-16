@@ -19,13 +19,13 @@ with open(sys.argv[1], 'wb') as f:
         'CFBundleName': 'Dock Enhanced',
         'CFBundleDisplayName': 'Dock Enhanced',
         'CFBundlePackageType': 'APPL',
-        'CFBundleShortVersionString': '0.6.3',
-        'CFBundleVersion': '14',
+        'CFBundleShortVersionString': '0.6.5',
+        'CFBundleVersion': '16',
         'CFBundleIconFile': 'AppIcon',
         'LSMinimumSystemVersion': '14.0',
         'LSUIElement': True,
         'NSHighResolutionCapable': True
     }, f)
 PY
-codesign --force --sign - --identifier dev.yifeng.DockEnhanced "$app_dir"
+python3 scripts/sign-app.py "$app_dir"
 print -r -- "$app_dir"

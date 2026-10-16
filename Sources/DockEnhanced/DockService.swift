@@ -219,6 +219,11 @@ final class DockService {
                     return AppWindow(element: window.element, key: window.key, title: window.title, frame: window.frame,
                                      state: WindowState(id: targetID, minimized: isMinimized, canMinimize: window.state.canMinimize, fullScreen: window.state.fullScreen))
                 }
+                if let target = prepared[pending.item.app.processIdentifier]?.first(where: { $0.key.id == targetID }) {
+                    // Retire suspended screenshots immediately, before the next
+                    // asynchronous inventory sees the minimize/restore command.
+                    images.refresh([target])
+                }
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.running else { return }
                     self.prepared[pending.item.app.processIdentifier] = self.controller.windows(of: pending.item.app)
