@@ -92,9 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showHelp() {
         if let helpWindow { helpWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); refreshPermissions(); return }
-        let height = min(744, (NSScreen.main?.visibleFrame.height ?? 808) - 64)
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 624, height: height),
-                              styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        let height = min(560, (NSScreen.main?.visibleFrame.height ?? 624) - 64)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 780, height: height),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.contentMinSize = NSSize(width: 760, height: 500)
         window.title = "Dock Enhanced · 设置"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
