@@ -99,12 +99,12 @@ func checkPreviewSettings() async -> Int32 {
 /// timing is controlled; the image store, generation handling and preferences are real.
 @MainActor
 private final class ControlledImageCapture {
-    private var publisher: ((WindowKey, NSImage) -> Void)?
+    private var publisher: (@MainActor (WindowKey, NSImage) -> Void)?
     private var completion: CheckedContinuation<Void, Never>?
     private var started: CheckedContinuation<Void, Never>?
 
-    func capture(_ windows: [AppWindow], current: @escaping () -> Bool,
-                 publish: @escaping (WindowKey, NSImage) -> Void) async throws {
+    func capture(_ windows: [AppWindow], current: @escaping @MainActor () -> Bool,
+                 publish: @escaping @MainActor (WindowKey, NSImage) -> Void) async throws {
         publisher = publish
         await withCheckedContinuation { continuation in
             completion = continuation

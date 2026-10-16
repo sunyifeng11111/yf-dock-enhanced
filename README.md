@@ -91,6 +91,8 @@ swift run --build-system native DockEnhanced --check-window-count com.openai.cod
 
 ### 图像、偏好与共享服务检查
 
+`scripts/check-thumbnail-delivery.sh --stress` 以 Release 优化运行真实缩略图线程回归：捕获本进程的临时窗口，连续 50 次通过共享缓存更新可见切换卡片，检查截图完成后的界面更新始终在主线程。需要已有屏幕录制权限；不创建全局按键监听、不改变权限／偏好、不保存截图。省略 `--stress` 可只运行一次。用于防止 0.6.0 中截图完成回调切到后台线程导致的切换崩溃；0.6.1 已修复。
+
 `swift run --build-system native DockEnhanced --check-preview-settings` 在隔离的偏好域和受控截图边界验证迁移、跨进程保存、异步图片、最小化缓存、撤权、重新授权和 64 张缓存上限，不显示窗口、不读取或捕获用户内容。
 
 `swift run --build-system native DockEnhanced --check-feature-services` 检查真实事件监听与三个开关的全部八种组合，以及共享图片生命周期。截图访问与图片返回在系统边界受控，不改变用户授权，也不捕获桌面像素。它会短暂创建全局事件监听并显示一张合成测试卡片，请与其他原生窗口检查串行运行。这两项检查不能代替真实权限撤销、系统授权变更或合成视觉验收。

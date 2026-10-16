@@ -76,7 +76,7 @@ final class WindowSwitcherInteractionCheck: NSObject, NSApplicationDelegate {
                 key(126); await pause(0.04)
                 try require(service.switcher.workflow.snapshot?.selected != beforeArrow, "real Up arrow moves selection geometrically in the grid")
                 await pause(0.15)
-                try capture(panel: panel)
+                if !CommandLine.arguments.contains("--skip-compositor-capture") { try capture(panel: panel) }
                 let enterTarget = service.switcher.workflow.snapshot!.selected
                 key(36); command(false); await pause(0.6)
                 try require(focused(enterTarget, fixtures), "Enter confirms the selected exact window and later Command release does not repeat")

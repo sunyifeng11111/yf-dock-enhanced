@@ -4,7 +4,10 @@ import ScreenCaptureKit
 /// Shared, memory-only image delivery for Dock hover and the window switcher.
 /// The injectable boundary is the operating system's async screenshot operation.
 final class PreviewImages {
-    typealias Capture = ([AppWindow], @escaping () -> Bool, @escaping (WindowKey, NSImage) -> Void) async throws -> Void
+    // The async capture and its callbacks share the UI executor. An enclosing
+    // MainActor task alone does not isolate an async nonisolated callee.
+    typealias Capture = @MainActor ([AppWindow], @escaping @MainActor () -> Bool,
+                                   @escaping @MainActor (WindowKey, NSImage) -> Void) async throws -> Void
     private(set) var cache: [WindowKey: NSImage] = [:]
     var onUpdate: ((WindowKey?) -> Void)?
     private let captureAccess: () -> Bool
@@ -41,7 +44,7 @@ final class PreviewImages {
         let requestedGeneration = generation
         return Task { @MainActor in
             defer { if self.activeCapture == token { self.activeCapture = nil } }
-            let current = { self.generation == requestedGeneration && self.hasConsumers && self.permissionGranted && self.captureAccess() }
+            let current: @MainActor () -> Bool = { self.generation == requestedGeneration && self.hasConsumers && self.permissionGranted && self.captureAccess() }
             do {
                 try await self.capture(visible, current) { key, image in
                     guard current() else { return }
@@ -71,8 +74,8 @@ final class PreviewImages {
         onUpdate?(nil)
     }
 
-    private static func captureWindows(_ windows: [AppWindow], isCurrent: @escaping () -> Bool,
-                                       publish: @escaping (WindowKey, NSImage) -> Void) async throws {
+    @MainActor private static func captureWindows(_ windows: [AppWindow], isCurrent: @escaping @MainActor () -> Bool,
+                                                 publish: @escaping @MainActor (WindowKey, NSImage) -> Void) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         guard isCurrent() else { return }
         let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
