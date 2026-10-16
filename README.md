@@ -87,6 +87,6 @@ swift run --build-system native DockEnhanced --check-window-count com.openai.cod
 
 ### 图像、偏好与共享服务检查
 
-`swift run --build-system native DockEnhanced --check-preview-settings` 在隔离的偏好域和受控截图边界验证迁移、保存、异步图片、最小化缓存、撤权、重新授权和 64 张缓存上限，不显示窗口、不读取或捕获用户内容。
+`swift run --build-system native DockEnhanced --check-preview-settings` 在隔离的偏好域和受控截图边界验证迁移、跨进程保存、异步图片、最小化缓存、撤权、重新授权和 64 张缓存上限，不显示窗口、不读取或捕获用户内容。
 
-`swift run --build-system native DockEnhanced --check-feature-services` 检查真实事件监听与三个开关的全部八种组合，以及共享图片生命周期。截图访问与图片返回在系统边界受控，不改变用户授权，也不捕获桌面像素。它会短暂创建全局事件监听，请与其他原生窗口检查串行运行。这两项检查不能代替真实权限撤销、系统授权变更或合成视觉验收。
+`swift run --build-system native DockEnhanced --check-feature-services` 检查真实事件监听与三个开关的全部八种组合，以及共享图片生命周期。截图访问与图片返回在系统边界受控，不改变用户授权，也不捕获桌面像素。它会短暂创建全局事件监听并显示一张合成测试卡片，请与其他原生窗口检查串行运行。这两项检查不能代替真实权限撤销、系统授权变更或合成视觉验收。

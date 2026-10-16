@@ -29,6 +29,15 @@ func checkPreviewSettings() async -> Int32 {
     let reopened = SettingsModel(defaults: defaults)
     require(!reopened.switcherEnabled && !reopened.previewEnabled && reopened.clickEnabled,
             "explicit feature choices survive reopening settings")
+    defaults.synchronize()
+    let restartedProcess = Process()
+    restartedProcess.executableURL = Bundle.main.executableURL
+    restartedProcess.arguments = ["--check-preference-restart", suite, "false", "true", "false"]
+    do {
+        try restartedProcess.run()
+        restartedProcess.waitUntilExit()
+        require(restartedProcess.terminationStatus == 0, "a separate application process retains the explicit disabled switcher and Dock choices")
+    } catch { require(false, "a separate application process could verify saved feature choices") }
     reopened.switcherEnabled = true
     reopened.running = true
     require(reopened.switcherStatus == "需要辅助功能权限 · 系统 Command+Tab 仍可用", "a running Dock service does not imply switcher control permission")
