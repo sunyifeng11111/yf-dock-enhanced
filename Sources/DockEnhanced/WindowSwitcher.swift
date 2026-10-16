@@ -1,5 +1,6 @@
 import AppKit
 import DockCore
+import QuartzCore
 
 extension WindowKey {
     var switcherID: SwitcherWindowID { SwitcherWindowID(pid: pid, id: id) }
@@ -9,14 +10,21 @@ struct SwitcherCandidate {
     let window: AppWindow
     let app: NSRunningApplication
     var id: SwitcherWindowID { window.key.switcherID }
+    var descriptor: SwitcherWindow { SwitcherWindow(id: id, appName: app.localizedName ?? "", title: window.title) }
 }
 
-/// Owns the native boundary. Scans are prepared off the input callback; browsing
-/// updates a nonactivating panel, and only a confirmed result reaches the controller.
+private func switcherFocusChanged(_ observer: AXObserver, _ element: AXUIElement, _ notification: CFString, _ context: UnsafeMutableRawPointer?) {
+    guard let context else { return }
+    Unmanaged<NativeWindowSwitcher>.fromOpaque(context).takeUnretainedValue().observeActualFocus()
+}
+
+/// Translates native input and observed focus into one selection workflow. No
+/// enumeration, capture or window restoration runs in the event-tap callback.
 final class NativeWindowSwitcher {
     let panel = WindowSwitcherPanel()
     private(set) var workflow = WindowSwitcher()
     private(set) var candidates: [SwitcherCandidate] = []
+    var onCandidatesChanged: (([SwitcherCandidate]) -> Void)?
     private var focusedWindows: [pid_t: SwitcherWindowID] = [:]
     private var sessionCandidates: [SwitcherCandidate] = []
     private let scanner = WindowController()
@@ -25,19 +33,44 @@ final class NativeWindowSwitcher {
     private var generation = 0
     private var activationGeneration = 0
     private var swallowedKeys = Set<Int64>()
-    var onCandidatesChanged: (([SwitcherCandidate]) -> Void)?
+    private var swallowMouseUp = false
+    private var displayWork: DispatchWorkItem?
+    private var sessionScreen: NSScreen?
+    private var focusObservers: [pid_t: AXObserver] = [:]
+    private var workspaceObserver: NSObjectProtocol?
+    private var screenObserver: NSObjectProtocol?
     private let controller: WindowController
+    private let applicationFilter: (NSRunningApplication) -> Bool
+    private var observing = false
+    private var lastPointer = CGPoint.zero
 
-    init(controller: WindowController) { self.controller = controller }
+    init(controller: WindowController, applicationFilter: @escaping (NSRunningApplication) -> Bool = { _ in true }) {
+        self.controller = controller
+        self.applicationFilter = applicationFilter
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in self?.observeActualFocus() }
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self, let screen = self.sessionScreen else { return }
+            if !NSScreen.screens.contains(where: { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber }) { self.cancel() }
+        }
+    }
+
+    deinit {
+        if let workspaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(workspaceObserver) }
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        for observer in focusObservers.values { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) }
+    }
+
     var isSelecting: Bool { workflow.snapshot != nil }
 
     func refreshCandidates() {
         guard !scanning else { return }
         scanning = true
+        observing = true
         let scanGeneration = generation
         let apps = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != getpid()
+            $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != getpid() && applicationFilter($0)
         }
+        updateFocusObservers(apps)
         scanQueue.async { [weak self] in
             guard let self else { return }
             var focused: [pid_t: SwitcherWindowID] = [:]
@@ -46,106 +79,261 @@ final class NativeWindowSwitcher {
                 if let window = self.scanner.focusedWindow(of: app, in: windows) { focused[app.processIdentifier] = window.key.switcherID }
                 return windows.map { SwitcherCandidate(window: $0, app: app) }
             }
+            let foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.scanning = false
                 guard self.generation == scanGeneration else { return }
                 self.focusedWindows = focused
-                self.candidates = result.sorted {
-                    let left = ($0.app.localizedName ?? "", $0.window.title, $0.window.key.id)
-                    let right = ($1.app.localizedName ?? "", $1.window.title, $1.window.key.id)
-                    return left < right
-                }
-                self.onCandidatesChanged?(self.candidates)
+                self.candidates = result
+                // Only an actual foreground observation records use. Background
+                // focused attributes and accepted activation requests do not.
+                if foregroundPID == NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                   let pid = foregroundPID, let focused = focused[pid] { self.workflow.observeFocus(focused) }
+                self.workflow.updateAvailableWindows(result.map(\.id))
+                if let snapshot = self.workflow.snapshot {
+                    let byID = Dictionary(result.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    self.sessionCandidates = snapshot.windows.compactMap { byID[$0] }
+                } else { self.sessionCandidates = [] }
+                self.onCandidatesChanged?(result)
+                self.render()
             }
         }
     }
 
-    /// Returns true only for events owned by this feature; other input retains its
-    /// ordinary system meaning. No Accessibility enumeration runs in this callback.
+    fileprivate func observeActualFocus() {
+        guard observing, let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getpid(), applicationFilter(app) else { return }
+        let observationGeneration = generation
+        scanQueue.async { [weak self] in
+            guard let self else { return }
+            let windows = self.scanner.windows(of: app)
+            let focused = self.scanner.focusedWindow(of: app, in: windows)?.key.switcherID
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == observationGeneration,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier,
+                      let focused else { return }
+                self.focusedWindows[app.processIdentifier] = focused
+                self.workflow.observeFocus(focused)
+            }
+        }
+    }
+
+    private func updateFocusObservers(_ apps: [NSRunningApplication]) {
+        let pids = Set(apps.map(\.processIdentifier))
+        for pid in Array(focusObservers.keys) where !pids.contains(pid) {
+            if let observer = focusObservers.removeValue(forKey: pid) { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) }
+        }
+        for app in apps where focusObservers[app.processIdentifier] == nil {
+            var observer: AXObserver?
+            guard AXObserverCreate(app.processIdentifier, switcherFocusChanged, &observer) == .success, let observer else { continue }
+            let element = AXUIElementCreateApplication(app.processIdentifier)
+            guard AXObserverAddNotification(observer, element, kAXFocusedWindowChangedNotification as CFString, Unmanaged.passUnretained(self).toOpaque()) == .success else { continue }
+            focusObservers[app.processIdentifier] = observer
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+        }
+    }
+
     func handle(type: CGEventType, event: CGEvent) -> Bool {
         let code = event.getIntegerValueField(.keyboardEventKeycode)
         if type == .keyUp, swallowedKeys.remove(code) != nil { return true }
-        if type == .flagsChanged, isSelecting, !event.flags.contains(.maskCommand) {
-            confirm()
+        if type == .leftMouseUp, swallowMouseUp { swallowMouseUp = false; return true }
+        if type == .flagsChanged, isSelecting, !event.flags.contains(.maskCommand) { confirm(); return false }
+        if type == .mouseMoved, isSelecting, workflow.isPanelVisible {
+            let point = appKitPoint(event.location)
+            if point != lastPointer {
+                lastPointer = point
+                if let target = panel.window(at: point) { workflow.pointerMoved(over: target); render() }
+            }
+            return false
+        }
+        if type == .leftMouseDown || type == .rightMouseDown {
+            if isSelecting {
+                if type == .leftMouseDown, workflow.isPanelVisible, panel.panel.frame.contains(appKitPoint(event.location)) {
+                    if let target = panel.window(at: appKitPoint(event.location)) { workflow.pointerMoved(over: target); confirm() }
+                    swallowMouseUp = true
+                    return true
+                }
+                cancel()
+            } else { activationGeneration += 1 }
             return false
         }
         guard type == .keyDown else { return false }
-        if code == 48, event.flags.contains(.maskCommand),
-           event.flags.intersection([.maskControl, .maskAlternate]).isEmpty {
+        if code == 48, event.flags.contains(.maskCommand), event.flags.intersection([.maskControl, .maskAlternate]).isEmpty {
             if !isSelecting {
                 guard !candidates.isEmpty else { return false }
                 controller.userChangedWindow()
-                sessionCandidates = candidates
-                onCandidatesChanged?(sessionCandidates)
+                activationGeneration += 1
+                lastPointer = NSEvent.mouseLocation
                 let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let current = pid.flatMap { focusedWindows[$0] }
-                workflow.begin(windows: sessionCandidates.map(\.id), current: current,
-                               reverse: event.flags.contains(.maskShift))
-            } else {
-                workflow.advance(reverse: event.flags.contains(.maskShift))
-            }
+                workflow.begin(candidates: candidates.map(\.descriptor), current: current, reverse: event.flags.contains(.maskShift), time: ProcessInfo.processInfo.systemUptime)
+                if let snapshot = workflow.snapshot {
+                    let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                    sessionCandidates = snapshot.windows.compactMap { byID[$0] }
+                    sessionScreen = screenForCurrentWindow(current)
+                    panel.prepare(candidates: sessionCandidates, screen: sessionScreen)
+                    // Build native views after returning the input callback, while
+                    // the no-flash interval is still running.
+                    let sessionIDs = snapshot.windows
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.workflow.snapshot?.windows == sessionIDs else { return }
+                        self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen)
+                    }
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self else { return }
+                        self.workflow.advanceTime(to: ProcessInfo.processInfo.systemUptime)
+                        self.render()
+                    }
+                    displayWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+                    onCandidatesChanged?(sessionCandidates)
+                }
+            } else { workflow.advance(reverse: event.flags.contains(.maskShift)) }
             swallowedKeys.insert(code)
             render()
             return true
         }
-        if isSelecting, code == 53 { swallowedKeys.insert(code); cancel(); return true }
+        if isSelecting {
+            if code == 53 { swallowedKeys.insert(code); cancel(); return true }
+            if code == 36 || code == 76 { swallowedKeys.insert(code); confirm(); return true }
+            let directions: [Int64: SwitcherDirection] = [123: .left, 124: .right, 125: .down, 126: .up]
+            if let direction = directions[code] {
+                swallowedKeys.insert(code)
+                workflow.move(direction, columns: panel.columns)
+                render()
+                return true
+            }
+            cancel()
+        } else { activationGeneration += 1 }
         return false
     }
+
+    func updatePreviewImage(_ image: NSImage?, for windowID: SwitcherWindowID) { panel.updatePreviewImage(image, for: windowID) }
+    func clearPreviewImages() { panel.clearPreviewImages() }
 
     func cancel() {
         activationGeneration += 1
         workflow.cancel()
-        sessionCandidates = []
-        panel.hide()
+        endPresentation()
     }
 
     func stop() {
         generation += 1
+        observing = false
         cancel()
         candidates = []
+        focusedWindows = [:]
+        workflow = WindowSwitcher()
         swallowedKeys.removeAll()
+        swallowMouseUp = false
+        for observer in focusObservers.values { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) }
+        focusObservers = [:]
+        clearPreviewImages()
         controller.cancelDeferredReveal()
     }
-
-    func updatePreviewImage(_ image: NSImage?, for windowID: SwitcherWindowID) {
-        panel.updatePreviewImage(image, for: windowID)
-    }
-
-    func clearPreviewImages() { panel.clearPreviewImages() }
 
     private func confirm() {
         activationGeneration += 1
         let confirmationGeneration = activationGeneration
         let target = workflow.commandReleased()
         let candidate = sessionCandidates.first { $0.id == target }
-        panel.hide()
-        sessionCandidates = []
+        endPresentation()
         guard let candidate else { return }
-        // The confirming flagsChanged must finish before deferred restoration starts.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.activationGeneration == confirmationGeneration else { return }
             _ = self.controller.reveal(candidate.window, app: candidate.app)
         }
     }
 
-    private func render() {
-        guard let snapshot = workflow.snapshot else { panel.hide(); return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.workflow.snapshot == snapshot else { return }
-            self.panel.show(candidates: self.sessionCandidates, selected: snapshot.selected)
+    private func endPresentation() {
+        displayWork?.cancel(); displayWork = nil
+        sessionCandidates = []
+        sessionScreen = nil
+        panel.hide()
+    }
+
+    private func screenForCurrentWindow(_ current: SwitcherWindowID?) -> NSScreen? {
+        if let window = candidates.first(where: { $0.id == current })?.window {
+            let center = appKitPoint(CGPoint(x: window.frame.midX, y: window.frame.midY))
+            if let screen = NSScreen.screens.first(where: { $0.frame.contains(center) }) { return screen }
         }
+        return NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func render() {
+        guard let snapshot = workflow.snapshot, workflow.isPanelVisible else {
+            if !isSelecting { displayWork?.cancel(); displayWork = nil; sessionScreen = nil; panel.hide() }
+            return
+        }
+        panel.show(candidates: sessionCandidates, selected: snapshot.selected, screen: sessionScreen)
+    }
+}
+
+private final class SwitcherGridView: NSView { override var isFlipped: Bool { true } }
+
+private final class SwitcherCard: NSView {
+    override var isFlipped: Bool { true }
+    let candidate: SwitcherCandidate
+    private let thumbnail = NSImageView()
+    init(candidate: SwitcherCandidate, frame: CGRect) {
+        self.candidate = candidate
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 16
+        thumbnail.frame = CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
+        thumbnail.imageScaling = .scaleProportionallyUpOrDown
+        thumbnail.imageAlignment = .alignCenter
+        thumbnail.wantsLayer = true
+        thumbnail.layer?.cornerRadius = 6
+        thumbnail.layer?.masksToBounds = true
+        addSubview(thumbnail)
+        let title = NSTextField(labelWithString: candidate.window.title.isEmpty ? "无标题窗口" : candidate.window.title)
+        title.frame = CGRect(x: 10, y: 143, width: frame.width - 20, height: 20)
+        title.font = .systemFont(ofSize: 13)
+        title.alignment = .center
+        title.lineBreakMode = .byTruncatingTail
+        addSubview(title)
+        let minimized = candidate.window.state.minimized ? " · 已最小化" : ""
+        let appName = NSTextField(labelWithString: (candidate.app.localizedName ?? "应用") + minimized)
+        appName.frame = CGRect(x: 10, y: 165, width: frame.width - 20, height: 18)
+        appName.font = .systemFont(ofSize: 11)
+        appName.textColor = .secondaryLabelColor
+        appName.alignment = .center
+        appName.lineBreakMode = .byTruncatingTail
+        addSubview(appName)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel("\(candidate.app.localizedName ?? "应用") · \(title.stringValue)\(minimized)")
+        update(image: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    func update(image: NSImage?) {
+        thumbnail.image = image ?? candidate.app.icon
+        thumbnail.frame = image == nil ? CGRect(x: (frame.width - 64) / 2, y: 39, width: 64, height: 64) : CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
+        setAccessibilityHelp(candidate.window.state.minimized && image != nil ? "已最小化 · 缓存画面" : "选择并切换此窗口")
+    }
+    func select(_ selected: Bool) {
+        guard let layer else { return }
+        var color = NSColor.clear.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { color = (selected ? NSColor.labelColor.withAlphaComponent(0.12) : NSColor.clear).cgColor }
+        let animation = CABasicAnimation(keyPath: "backgroundColor")
+        animation.fromValue = layer.presentation()?.backgroundColor ?? layer.backgroundColor
+        animation.toValue = color
+        animation.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.12
+        layer.add(animation, forKey: "selection")
+        layer.backgroundColor = color
+        setAccessibilityValue(selected ? "已选中" : "")
     }
 }
 
 final class WindowSwitcherPanel {
     let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-    private var cards: [SwitcherWindowID: NSView] = [:]
-    private var scroll: NSScrollView?
+    private var cards: [SwitcherWindowID: SwitcherCard] = [:]
     private var images: [SwitcherWindowID: NSImage] = [:]
-    private var thumbnails: [SwitcherWindowID: NSImageView] = [:]
-    private var icons: [SwitcherWindowID: NSImage] = [:]
+    private var scroll: NSScrollView?
+    private(set) var columns = 1
     private(set) var windowIDs: [SwitcherWindowID] = []
+    private var selected: SwitcherWindowID?
 
     init() {
         panel.level = .popUpMenu
@@ -155,81 +343,78 @@ final class WindowSwitcherPanel {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.ignoresMouseEvents = true
         panel.setAccessibilityTitle("窗口切换")
     }
 
-    func show(candidates: [SwitcherCandidate], selected: SwitcherWindowID, screen: NSScreen? = nil) {
+    func prepare(candidates: [SwitcherCandidate], screen: NSScreen?) {
+        let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+        columns = max(1, min(candidates.count, Int((available.width - 48) / 244)))
+    }
+
+    func prepareContent(candidates: [SwitcherCandidate], screen: NSScreen?) {
+        guard !candidates.isEmpty else { return }
+        windowIDs = candidates.map(\.id)
+        prepare(candidates: candidates, screen: screen)
+        let available = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
+        let rows = (candidates.count + columns - 1) / columns
+        let documentHeight = CGFloat(rows) * 200 - 10
+        let size = CGSize(width: CGFloat(columns) * 244 + 14, height: min(available.height - 64, documentHeight + 24))
+        panel.setFrame(CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2, width: size.width, height: size.height), display: false)
+        let content = NSView(frame: CGRect(origin: .zero, size: size))
+        let scrolling = NSScrollView(frame: content.bounds.insetBy(dx: 12, dy: 12))
+        scrolling.drawsBackground = false
+        scrolling.hasVerticalScroller = true
+        scrolling.scrollerStyle = .overlay
+        scrolling.autohidesScrollers = true
+        let document = SwitcherGridView(frame: CGRect(x: 0, y: 0, width: size.width - 24, height: documentHeight))
+        cards = [:]
+        for (index, candidate) in candidates.enumerated() {
+            let card = SwitcherCard(candidate: candidate, frame: CGRect(x: CGFloat(index % columns) * 244, y: CGFloat(index / columns) * 200, width: 234, height: 190))
+            card.update(image: images[candidate.id])
+            document.addSubview(card)
+            cards[candidate.id] = card
+        }
+        scrolling.documentView = document
+        content.addSubview(scrolling)
+        scroll = scrolling
+        panel.contentView = makeWindowPreviewBackground(content: content)
+    }
+
+    func show(candidates: [SwitcherCandidate], selected: SwitcherWindowID, screen: NSScreen?) {
         guard !candidates.isEmpty else { hide(); return }
-        let ids = candidates.map(\.id)
-        if windowIDs != ids || !panel.isVisible {
-            windowIDs = ids
-            let available = (screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1000, height: 700)
-            let width = min(available.width - 48, CGFloat(candidates.count) * 244 + 14)
-            let size = CGSize(width: max(250, width), height: 206)
-            panel.setFrame(CGRect(x: available.midX - size.width / 2, y: available.midY - size.height / 2, width: size.width, height: size.height), display: false)
-            let content = NSView(frame: CGRect(origin: .zero, size: size))
-            let scrolling = NSScrollView(frame: content.bounds.insetBy(dx: 12, dy: 12))
-            scrolling.drawsBackground = false
-            scrolling.hasHorizontalScroller = true
-            scrolling.autohidesScrollers = true
-            let document = NSView(frame: CGRect(x: 0, y: 0, width: CGFloat(candidates.count) * 244 - 10, height: 170))
-            cards = [:]
-            thumbnails = [:]
-            icons = [:]
-            for (index, candidate) in candidates.enumerated() {
-                let card = NSView(frame: CGRect(x: CGFloat(index) * 244, y: 0, width: 234, height: 170))
-                card.wantsLayer = true
-                card.layer?.cornerRadius = 16
-                let icon = NSImageView(frame: CGRect(x: 8, y: 66, width: 218, height: 90))
-                icon.image = images[candidate.id] ?? candidate.app.icon
-                icon.imageAlignment = .alignCenter
-                thumbnails[candidate.id] = icon
-                icons[candidate.id] = candidate.app.icon
-                icon.imageScaling = .scaleProportionallyUpOrDown
-                card.addSubview(icon)
-                let title = NSTextField(labelWithString: candidate.window.title)
-                title.frame = CGRect(x: 10, y: 40, width: 214, height: 20)
-                title.font = .systemFont(ofSize: 13)
-                title.alignment = .center
-                title.lineBreakMode = .byTruncatingTail
-                card.addSubview(title)
-                let appName = NSTextField(labelWithString: (candidate.app.localizedName ?? "应用") + (candidate.window.state.minimized ? " · 已最小化" : ""))
-                appName.frame = CGRect(x: 10, y: 18, width: 214, height: 18)
-                appName.font = .systemFont(ofSize: 11)
-                appName.textColor = .secondaryLabelColor
-                appName.alignment = .center
-                appName.lineBreakMode = .byTruncatingTail
-                card.addSubview(appName)
-                card.setAccessibilityElement(true)
-                card.setAccessibilityLabel("\(candidate.app.localizedName ?? "应用") · \(candidate.window.title)")
-                document.addSubview(card)
-                cards[candidate.id] = card
+        let wasVisible = panel.isVisible
+        let rebuilt = windowIDs != candidates.map(\.id)
+        if rebuilt { prepareContent(candidates: candidates, screen: screen) }
+        for (id, card) in cards { card.select(id == selected) }
+        if self.selected != selected || !wasVisible || rebuilt, let card = cards[selected] { card.scrollToVisible(card.bounds) }
+        self.selected = selected
+        if !wasVisible {
+            panel.alphaValue = 0
+            panel.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
             }
-            scrolling.documentView = document
-            content.addSubview(scrolling)
-            scroll = scrolling
-            panel.contentView = makeWindowPreviewBackground(content: content)
         }
-        for (id, card) in cards {
-            card.effectiveAppearance.performAsCurrentDrawingAppearance {
-                card.layer?.backgroundColor = (id == selected ? NSColor.labelColor.withAlphaComponent(0.12) : NSColor.clear).cgColor
-            }
-            card.setAccessibilityValue(id == selected ? "已选中" : "")
-        }
-        if let card = cards[selected] { card.scrollToVisible(card.bounds) }
-        panel.orderFrontRegardless()
+    }
+
+    func window(at screenPoint: CGPoint) -> SwitcherWindowID? {
+        guard panel.isVisible, panel.frame.contains(screenPoint), let scroll else { return nil }
+        // convertFromScreen is needed before converting into the scrolled document.
+        let inWindow = panel.convertPoint(fromScreen: screenPoint)
+        let inScroll = scroll.convert(inWindow, from: nil)
+        guard scroll.bounds.contains(inScroll) else { return nil }
+        return cards.first { _, card in card.bounds.contains(card.convert(inWindow, from: nil)) }?.key
     }
 
     func updatePreviewImage(_ image: NSImage?, for windowID: SwitcherWindowID) {
         images[windowID] = image
-        thumbnails[windowID]?.image = image ?? icons[windowID]
+        cards[windowID]?.update(image: image)
     }
-
     func clearPreviewImages() {
-        images.removeAll()
-        for (id, thumbnail) in thumbnails { thumbnail.image = icons[id] }
+        images = [:]
+        for card in cards.values { card.update(image: nil) }
     }
-
-    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; thumbnails = [:]; icons = [:]; scroll = nil }
+    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; scroll = nil; selected = nil }
 }

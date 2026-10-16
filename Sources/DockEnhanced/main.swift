@@ -18,7 +18,11 @@ if CommandLine.arguments.contains("--check-feature-services") {
 }
 let application = NSApplication.shared
 let delegate: NSApplicationDelegate
-if let index = CommandLine.arguments.firstIndex(of: "--check-command-tab"), CommandLine.arguments.count > index + 2 {
+if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-interaction"), CommandLine.arguments.count > index + 2 {
+    delegate = WindowSwitcherInteractionCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
+}
+else if CommandLine.arguments.contains("--interaction-fixture") { delegate = SwitcherInteractionFixture() }
+else if let index = CommandLine.arguments.firstIndex(of: "--check-command-tab"), CommandLine.arguments.count > index + 2 {
     delegate = WindowSwitcherCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })
 }
 else if CommandLine.arguments.contains("--check-chrome-preview") { delegate = ChromePreviewCheck() }

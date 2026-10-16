@@ -50,17 +50,20 @@ func checkFeatureServices() async -> Int32 {
     service.configure(previewsEnabled: true, clickEnabled: false, switcherEnabled: false)
     require(service.images.cache[window.key] === picture, "disabling switcher preserves images still consumed by hover")
     service.configure(previewsEnabled: false, clickEnabled: false, switcherEnabled: true)
+    service.images.clear()
     service.switcher.panel.show(candidates: [SwitcherCandidate(window: window, app: NSRunningApplication.current)], selected: window.key.switcherID, screen: NSScreen.main)
-    await service.images.refresh([window])?.value
     func containsPicture(_ view: NSView?) -> Bool {
         guard let view else { return false }
         if let imageView = view as? NSImageView, imageView.image === picture { return true }
         return view.subviews.contains { containsPicture($0) }
     }
+    require(!containsPicture(service.switcher.panel.panel.contentView), "the actual card is usable with its title and icon before capture completes")
+    await service.images.refresh([window])?.value
     require(containsPicture(service.switcher.panel.panel.contentView), "async imagery reaches an actual visible native card")
     recording = false
     service.configure(previewsEnabled: false, clickEnabled: false, switcherEnabled: true)
-    require(service.switcherAvailable && service.images.cache.isEmpty && !containsPicture(service.switcher.panel.panel.contentView),
+    require(service.switcherAvailable && service.images.cache.isEmpty && !containsPicture(service.switcher.panel.panel.contentView) &&
+            service.switcher.panel.windowIDs == [window.key.switcherID] && service.switcher.panel.panel.isVisible,
             "recording revocation clears visible card imagery and cache while keyboard switching remains available")
     service.switcher.panel.hide()
     service.configure(previewsEnabled: false, clickEnabled: true, switcherEnabled: false)
