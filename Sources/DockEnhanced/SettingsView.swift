@@ -238,21 +238,14 @@ struct SettingsView: View {
             }.padding(16).settingsGroup()
         }
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(L("软件更新"))
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle(L("自动检查更新"), isOn: $updates.automaticChecks)
-                    .toggleStyle(.switch).controlSize(.small)
-                HStack {
-                    Text(L(updates.statusKey)).font(.system(size: 11)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(L("检查更新…")) { updates.checkNow() }
-                        .disabled(!updates.canCheck).controlSize(.small)
-                }
-                if let lastCheck = updates.lastCheck {
-                    Text(L("上次检查：") + lastCheck.formatted(date: .abbreviated, time: .shortened))
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
-                }
-            }.padding(16).settingsGroup()
+            sectionTitle(L("系统权限"))
+            VStack(spacing: 0) {
+                permission(L("辅助功能"), detail: L("识别 Dock 图标与切换快捷键，操作你选择的窗口。"), symbol: "hand.point.up.left", granted: model.accessibilityGranted, action: requestAccessibility)
+                Divider().padding(.horizontal, 16)
+                permission(L("屏幕录制"), detail: L("用于悬停预览与窗口切换的缩略图；不影响图标和标题切换。"), symbol: "rectangle.on.rectangle", granted: model.captureGranted, action: requestCapture)
+            }.settingsGroup()
+            Text(L("若授权后仍未生效，请退出并重新打开应用。"))
+                .settingsFootnote()
         }
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle(L("启动与显示"))
@@ -278,14 +271,21 @@ struct SettingsView: View {
             }.settingsGroup()
         }
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(L("系统权限"))
-            VStack(spacing: 0) {
-                permission(L("辅助功能"), detail: L("识别 Dock 图标与切换快捷键，操作你选择的窗口。"), symbol: "hand.point.up.left", granted: model.accessibilityGranted, action: requestAccessibility)
-                Divider().padding(.horizontal, 16)
-                permission(L("屏幕录制"), detail: L("用于悬停预览与窗口切换的缩略图；不影响图标和标题切换。"), symbol: "rectangle.on.rectangle", granted: model.captureGranted, action: requestCapture)
-            }.settingsGroup()
-            Text(L("若授权后仍未生效，请退出并重新打开应用。"))
-                .settingsFootnote()
+            sectionTitle(L("软件更新"))
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(L("自动检查更新"), isOn: $updates.automaticChecks)
+                    .toggleStyle(.switch).controlSize(.small)
+                HStack {
+                    Text(L(updates.statusKey)).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(L("检查更新…")) { updates.checkNow() }
+                        .disabled(!updates.canCheck).controlSize(.small)
+                }
+                if let lastCheck = updates.lastCheck {
+                    Text(L("上次检查：") + lastCheck.formatted(date: .abbreviated, time: .shortened))
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+            }.padding(16).settingsGroup()
         }
     }
 
