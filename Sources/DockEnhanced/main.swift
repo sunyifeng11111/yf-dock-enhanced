@@ -41,6 +41,10 @@ if let index = CommandLine.arguments.firstIndex(of: "--probe-fixture-inventory")
 }
 let delegate: NSApplicationDelegate
 if CommandLine.arguments.contains("--check-thumbnail-delivery") { delegate = ThumbnailDeliveryCheck() }
+else if let index = CommandLine.arguments.firstIndex(of: "--check-thumbnail-recovery"), CommandLine.arguments.count > index + 2 {
+    let urls = CommandLine.arguments.dropFirst(index + 1).prefix { !$0.hasPrefix("--") }.map { URL(fileURLWithPath: $0) }
+    delegate = WindowSwitcherThumbnailRecoveryCheck(urls: urls)
+}
 else if CommandLine.arguments.contains("--check-settings-visual") { delegate = SettingsVisualCheck() }
 else if let index = CommandLine.arguments.firstIndex(of: "--check-switcher-visual"), CommandLine.arguments.count > index + 2 {
     delegate = WindowSwitcherVisualCheck(urls: CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) })

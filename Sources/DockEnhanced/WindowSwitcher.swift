@@ -79,12 +79,13 @@ final class NativeWindowSwitcher {
         let apps = NSWorkspace.shared.runningApplications.filter {
             $0.activationPolicy == .regular && !$0.isTerminated && $0.processIdentifier != getpid() && applicationFilter($0)
         }
+        let previous = Dictionary(grouping: candidates.map(\.window), by: { $0.key.pid })
         updateFocusObservers(apps)
         scanQueue.async { [weak self] in
             guard let self else { return }
             var focused: [pid_t: SwitcherWindowID] = [:]
             let result = apps.flatMap { app in
-                let windows = self.scanner.windows(of: app)
+                let windows = self.scanner.windows(of: app, retaining: previous[app.processIdentifier] ?? [])
                 if let window = self.scanner.focusedWindow(of: app, in: windows) { focused[app.processIdentifier] = window.key.switcherID }
                 return windows.map { SwitcherCandidate(window: $0, app: app) }
             }

@@ -147,14 +147,21 @@ final class WindowController {
     private var revealGeneration = 0
     private let policy = DockClickPolicy()
 
-    func windows(of app: NSRunningApplication) -> [AppWindow] {
+    /// The chooser may retain its last exact snapshots across temporary AX
+    /// failures. Other callers still receive only freshly readable windows.
+    func windows(of app: NSRunningApplication, retaining previous: [AppWindow] = []) -> [AppWindow] {
+        guard !app.isTerminated else { return [] }
+        let retained = previous.filter { $0.key.pid == app.processIdentifier }
+        func lastObservation(of element: AXUIElement) -> AppWindow? {
+            retained.first { CFEqual($0.element, element) }
+        }
         let owner = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(owner, 0.06)
         var reportedValue: CFTypeRef?
         // A timed-out owner is not a successful empty/full-screen inventory.
         // Avoid multiplying its messaging timeout across every retained element.
         guard AXUIElementCopyAttributeValue(owner, kAXWindowsAttribute as CFString, &reportedValue) == .success,
-              let reported = reportedValue as? [AXUIElement] else { return [] }
+              let reported = reportedValue as? [AXUIElement] else { return retained }
         // AppKit can omit ordinary windows from AXWindows while that application
         // is full screen. Keep previously identified exact elements discoverable;
         // every retained element still has to pass live role/frame/state reads.
@@ -167,10 +174,20 @@ final class WindowController {
             let roleResult = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
             if roleResult == .invalidUIElement {
                 WindowIdentityRegistry.shared.forgetInvalidElement(element, pid: app.processIdentifier)
+                return nil
             }
-            guard roleResult == .success, roleValue as? String == kAXWindowRole,
-                  let frame = AX.rect(element), frame.width > 1, frame.height > 1 else { return nil }
             guard !seen.contains(where: { CFEqual($0, element) }) else { return nil }
+            // Restoration can keep an app's AX server busy for a heartbeat.
+            // Failure to read a live element is not evidence that it closed.
+            guard roleResult == .success else {
+                seen.append(element)
+                return lastObservation(of: element)
+            }
+            guard roleValue as? String == kAXWindowRole else { return nil }
+            guard let frame = AX.rect(element), frame.width > 1, frame.height > 1 else {
+                seen.append(element)
+                return lastObservation(of: element)
+            }
             let rawTitle: String? = AX.value(element, kAXTitleAttribute)
             let title = rawTitle ?? ""
             let subrole: String? = AX.value(element, kAXSubroleAttribute)
