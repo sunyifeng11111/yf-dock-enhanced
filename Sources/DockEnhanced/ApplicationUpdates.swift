@@ -112,7 +112,16 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     func updater(_ updater: SPUUpdater, shouldDownloadReleaseNotesForUpdate updateItem: SUAppcastItem) -> Bool { false }
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { statusKey = "发现新版本" }
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { statusKey = "已是最新版本" }
-    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) { statusKey = "更新检查失败" }
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        let error = error as NSError
+        // Sparkle also ends a successful no-update cycle through this callback,
+        // after the user acknowledges the up-to-date dialog.
+        if error.domain == SUSparkleErrorDomain && error.code == Int(SUError.noUpdateError.rawValue) {
+            statusKey = "已是最新版本"
+        } else {
+            statusKey = "更新检查失败"
+        }
+    }
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         canCheck = updater.canCheckForUpdates
         lastCheck = updater.lastUpdateCheckDate

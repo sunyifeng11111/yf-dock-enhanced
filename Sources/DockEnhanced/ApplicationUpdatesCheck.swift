@@ -61,6 +61,28 @@ func checkApplicationUpdates() async -> Int32 {
     let channelEngine = SPUUpdater(hostBundle: .main, applicationBundle: .main, userDriver: updates, delegate: nil)
     defer { withExtendedLifetime(channelEngine) {} }
     require(updates.allowedChannels(for: channelEngine).isEmpty, "only the stable default channel is selected")
+    let noUpdate = NSError(domain: SUSparkleErrorDomain, code: Int(SUError.noUpdateError.rawValue))
+    updates.showUserInitiatedUpdateCheck {}
+    updates.updaterDidNotFindUpdate(channelEngine, error: noUpdate)
+    updates.showUpdateNotFoundWithError(noUpdate) {
+        // Sparkle finishes this path by reporting SUNoUpdateError to the
+        // updater delegate after the user acknowledges the latest-version UI.
+        updates.updater(channelEngine, didAbortWithError: noUpdate)
+        updates.updater(channelEngine, didFinishUpdateCycleFor: .updates, error: noUpdate)
+    }
+    require(updates.statusKey == "已是最新版本", "a successful check with no release shows up-to-date")
+    updates.choose(updates.actions[0])
+    require(updates.statusKey == "已是最新版本", "acknowledging no update cannot overwrite success with a failure")
+    updates.updaterDidNotFindUpdate(channelEngine, error: noUpdate)
+    updates.updater(channelEngine, didAbortWithError: noUpdate)
+    updates.updater(channelEngine, didFinishUpdateCycleFor: .updatesInBackground, error: noUpdate)
+    require(updates.statusKey == "已是最新版本", "background no-update completion also preserves success")
+    for error in [NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet),
+                  NSError(domain: SUSparkleErrorDomain, code: Int(SUError.signatureError.rawValue)),
+                  NSError(domain: "UnrelatedErrorDomain", code: Int(SUError.noUpdateError.rawValue))] {
+        updates.updater(channelEngine, didAbortWithError: error)
+        require(updates.statusKey == "更新检查失败", "actual errors remain failures: \(error.domain)/\(error.code)")
+    }
     if CommandLine.arguments.contains("--visual") {
         let preview = ApplicationUpdates(bundle: host, defaults: defaults)
         defer { preview.dismissUpdateInstallation() }
@@ -105,6 +127,29 @@ func checkApplicationUpdates() async -> Int32 {
         let readOnly = ApplicationUpdates(bundle: bundle, defaults: defaults)
         readOnly.start()
         require(!readOnly.canCheck && readOnly.statusKey == "请先将应用移入应用程序文件夹", "disk-image app cannot initiate an in-place update")
+    }
+    if let index = CommandLine.arguments.firstIndex(of: "--engine-no-update-app"), CommandLine.arguments.count > index + 1,
+       let bundle = Bundle(path: CommandLine.arguments[index + 1]) {
+        let engineDefaults = UserDefaults(suiteName: bundle.bundleIdentifier!)!
+        engineDefaults.set(false, forKey: "SUEnableAutomaticChecks")
+        defer { engineDefaults.removePersistentDomain(forName: bundle.bundleIdentifier!) }
+        let live = ApplicationUpdates(bundle: bundle, defaults: engineDefaults)
+        live.start()
+        live.checkNow()
+        var acknowledged = false
+        for _ in 0..<500 {
+            if !acknowledged, live.titleKey == "已是最新版本", let done = live.actions.first {
+                acknowledged = true
+                live.choose(done)
+            }
+            if acknowledged && live.canCheck { break }
+            if !live.errorDetail.isEmpty { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        require(acknowledged && live.canCheck && live.statusKey == "已是最新版本", "real signed-feed check stays up-to-date after acknowledgement and engine completion")
+        require(live.lastCheck != nil, "real no-update cycle records its check date")
+        if !acknowledged { print("ENGINE ERROR: \(live.statusKey) \(live.errorDetail)") }
+        live.dismissUpdateInstallation()
     }
     print("\(count) update UI checks, \(failures) failures")
     return failures == 0 ? 0 : 1
