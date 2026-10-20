@@ -114,11 +114,13 @@ final class PreviewImages {
             let candidates = content.windows.filter {
                 $0.owningApplication?.processID == window.key.pid && !used.contains($0.windowID) && !transparent.contains($0.windowID)
             }
-            // Geometry plus title disambiguates identical browser titles. Never guess
-            // from title alone when more than one capture candidate matches.
+            // Browser windows can leave several same-sized, same-titled capture
+            // records behind. Exclude records that are no longer on screen before
+            // resolving a title; never guess among remaining ambiguous windows.
             let matches = candidates.filter {
                 abs($0.frame.minX - window.frame.minX) < 8 && abs($0.frame.minY - window.frame.minY) < 8 &&
-                abs($0.frame.width - window.frame.width) < 8 && abs($0.frame.height - window.frame.height) < 8
+                abs($0.frame.width - window.frame.width) < 8 && abs($0.frame.height - window.frame.height) < 8 &&
+                Self.isStableOnScreen(window, id: $0.windowID)
             }
             let exact = matches.filter { $0.title == window.title }
             let appName = NSRunningApplication(processIdentifier: window.key.pid)?.localizedName ?? ""
