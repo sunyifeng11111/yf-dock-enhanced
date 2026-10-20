@@ -29,6 +29,11 @@ final class Localization: ObservableObject {
         language == .english ? english[key] ?? key : key
     }
     static let english: [String: String] = [
+        "快捷键": "Keyboard Shortcuts",
+        "选择下一个窗口": "Select the next window",
+        "反向选择窗口": "Select the previous window",
+        "取消切换": "Cancel switching",
+        "按住 Command 浏览，松开即可切换。也可使用方向键、鼠标和 Enter。": "Hold Command to browse, then release to switch. You can also use arrow keys, the mouse, and Enter.",
         "完成": "Done",
         "详细信息": "Details",
         "完成后将重新启动。": "The app will restart when finished.",

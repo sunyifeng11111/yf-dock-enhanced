@@ -130,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.contentMinSize = NSSize(width: 760, height: 500)
         window.title = L("Dock Enhanced · 设置")
-        window.titlebarAppearsTransparent = true
+        SettingsWindowStyle.apply(to: window)
         window.isReleasedWhenClosed = false
         window.center()
         window.contentView = NSHostingView(rootView: SettingsView(model: preferences, loginItem: loginItem, updates: updates,

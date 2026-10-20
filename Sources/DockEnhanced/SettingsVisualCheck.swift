@@ -26,42 +26,76 @@ final class SettingsVisualCheck: NSObject, NSApplicationDelegate {
             windows.append(backdrop)
             var result: Int32 = 0
             do {
-                let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 780, height: 560), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+                let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 780, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
                 window.title = "Dock Enhanced · 设置（受控检查）"
+                SettingsWindowStyle.apply(to: window)
+                window.appearance = NSAppearance(named: .aqua)
+                window.contentMinSize = NSSize(width: 760, height: 500)
                 window.isReleasedWhenClosed = false
-                window.contentView = NSHostingView(rootView: SettingsView(model: model, loginItem: LoginItem(), requestAccessibility: {}, requestCapture: {}))
+                window.contentView = NSHostingView(rootView: SettingsView(model: model, loginItem: LoginItem(), updates: ApplicationUpdates(defaults: defaults), requestAccessibility: {}, requestCapture: {}))
                 window.center(); window.makeKeyAndOrderFront(nil)
                 windows.append(window)
                 NSApp.activate(ignoringOtherApps: true)
                 await pause(0.4)
-                try saveControlledCompositor(window, name: "settings-dock-light")
-                click(window: window, x: 88, fromTop: 131)
+                try checkWindowButtons(window)
+                try await checkDrag(window, x: 145, fromTop: 24)
+                try await checkDrag(window, x: 650, fromTop: 32)
+                window.standardWindowButton(.miniaturizeButton)?.performClick(nil)
                 await pause(0.4)
-                try saveControlledCompositor(window, name: "settings-switcher-light")
-                click(window: window, x: 710, fromTop: 98)
+                try require(window.isMiniaturized, "native yellow button still minimizes the integrated window")
+                window.deminiaturize(nil)
+                window.makeKeyAndOrderFront(nil)
+                await pause(0.4)
+                try saveControlledCompositor(window, name: "dock-light", prefix: "settings-ocean-")
+                click(window: window, x: 710, fromTop: 158)
+                await pause(0.2)
+                try require(!model.previewEnabled && model.delay == 0.4, "hiding the preview delay retains its saved value")
+                try saveControlledCompositor(window, name: "dock-preview-off", prefix: "settings-ocean-")
+                click(window: window, x: 710, fromTop: 142)
+                await pause(0.2)
+                try require(model.previewEnabled && model.delay == 0.4, "preview re-enables with the same delay")
+                click(window: window, x: 88, fromTop: 180)
+                await pause(0.4)
+                try saveControlledCompositor(window, name: "switcher-light", prefix: "settings-ocean-")
+                click(window: window, x: 710, fromTop: 142)
                 await pause(0.2)
                 try require(!model.switcherEnabled && !SettingsModel(defaults: defaults).switcherEnabled, "actual settings toggle disables enhancement and persists in an isolated domain")
-                click(window: window, x: 710, fromTop: 98)
+                click(window: window, x: 710, fromTop: 142)
                 await pause(0.2)
                 try require(model.switcherEnabled && model.switcherStatus == localization.text("增强可用 · 图标和标题可用（未授权屏幕录制）"), "actual settings toggle restores icon/title switching with capture unavailable")
                 window.appearance = NSAppearance(named: .darkAqua)
                 await pause(0.3)
-                try saveControlledCompositor(window, name: "settings-switcher-dark")
-                click(window: window, x: 88, fromTop: 171)
+                try saveControlledCompositor(window, name: "switcher-dark", prefix: "settings-ocean-")
+                click(window: window, x: 88, fromTop: 228)
                 await pause(0.3)
-                try saveControlledCompositor(window, name: "settings-general-dark")
+                try saveControlledCompositor(window, name: "general-dark", prefix: "settings-ocean-")
+                window.appearance = NSAppearance(named: .aqua)
+                await pause(0.3)
+                try saveControlledCompositor(window, name: "general-light", prefix: "settings-ocean-")
                 localization.language = .english
                 await pause(0.3)
                 try require(Localization(defaults: defaults, preferredLanguages: ["zh-Hans"]).language == .english,
                             "language choice persists in the isolated domain")
-                try saveControlledCompositor(window, name: "general-en", prefix: "localization-")
-                click(window: window, x: 88, fromTop: 131)
+                try saveControlledCompositor(window, name: "general-en", prefix: "settings-ocean-")
+                click(window: window, x: 88, fromTop: 180)
                 await pause(0.3)
-                try saveControlledCompositor(window, name: "switcher-en", prefix: "localization-")
-                click(window: window, x: 88, fromTop: 91)
+                try saveControlledCompositor(window, name: "switcher-en", prefix: "settings-ocean-")
+                click(window: window, x: 88, fromTop: 136)
                 await pause(0.3)
-                try saveControlledCompositor(window, name: "dock-en", prefix: "localization-")
-                window.close(); window.makeKeyAndOrderFront(nil)
+                try saveControlledCompositor(window, name: "dock-en", prefix: "settings-ocean-")
+                window.setContentSize(NSSize(width: 760, height: 500))
+                await pause(0.3)
+                try saveControlledCompositor(window, name: "dock-en-minimum", prefix: "settings-ocean-")
+                click(window: window, x: 88, fromTop: 228)
+                await pause(0.3)
+                try saveControlledCompositor(window, name: "general-en-minimum", prefix: "settings-ocean-")
+                try scrollToBottom(window.contentView!)
+                await pause(0.3)
+                try saveControlledCompositor(window, name: "general-en-updates", prefix: "settings-ocean-")
+                window.standardWindowButton(.closeButton)?.performClick(nil)
+                await pause(0.2)
+                try require(!window.isVisible, "native red button closes the integrated settings window")
+                window.makeKeyAndOrderFront(nil)
                 await pause(0.2)
                 try require(window.isVisible && model.switcherEnabled, "settings window reopens with its saved feature choice")
                 print("PASS: actual settings UI checks; no login registration or real permission change")
@@ -74,6 +108,44 @@ final class SettingsVisualCheck: NSObject, NSApplicationDelegate {
             await pause(0.3)
             exit(result)
         }
+    }
+    private func checkWindowButtons(_ window: NSWindow) throws {
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(kind) else {
+                try require(false, "native traffic light exists")
+                return
+            }
+            let rect = button.convert(button.bounds, to: nil)
+            try require(button.isEnabled && rect.maxX < 200 && rect.minY > window.frame.height - 48,
+                        "native traffic light is enabled and contained in the sidebar header")
+        }
+    }
+    @MainActor private func checkDrag(_ window: NSWindow, x: CGFloat, fromTop: CGFloat) async throws {
+        let frame = window.frame
+        let start = window.convertPoint(toScreen: CGPoint(x: x, y: window.contentView!.bounds.height - fromTop))
+        let end = CGPoint(x: start.x + 40, y: start.y - 20)
+        CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: quartzPoint(start), mouseButton: .left)?.post(tap: .cghidEventTap)
+        await pause(0.1)
+        CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: quartzPoint(end), mouseButton: .left)?.post(tap: .cghidEventTap)
+        await pause(0.1)
+        CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: quartzPoint(end), mouseButton: .left)?.post(tap: .cghidEventTap)
+        await pause(0.2)
+        let moved = abs(window.frame.minX - frame.minX) > 8
+        window.setFrame(frame, display: true)
+        try require(moved, "integrated header drags the window at x=\(x)")
+    }
+    private func scrollToBottom(_ view: NSView) throws {
+        func findScrollView(_ candidate: NSView) -> NSScrollView? {
+            if let scroll = candidate as? NSScrollView { return scroll }
+            return candidate.subviews.lazy.compactMap { findScrollView($0) }.first
+        }
+        guard let scroll = findScrollView(view), let document = scroll.documentView else {
+            throw NSError(domain: "SettingsVisualCheck", code: 2, userInfo: [NSLocalizedDescriptionKey: "Settings scroll view is unavailable"])
+        }
+        let y = document.isFlipped ? max(0, document.bounds.height - scroll.contentSize.height) : 0
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try require(scroll.contentView.bounds.height < document.bounds.height, "minimum-height General scrolls to reach update controls")
     }
     private func click(window: NSWindow, x: CGFloat, fromTop: CGFloat) {
         let point = window.convertPoint(toScreen: CGPoint(x: x, y: window.contentView!.bounds.height - fromTop))
