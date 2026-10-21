@@ -161,6 +161,7 @@ final class WindowController {
         let elements = reported + WindowIdentityRegistry.shared.knownElements(for: app.processIdentifier)
         let focused: AXUIElement? = AX.value(owner, kAXFocusedWindowAttribute)
         var seen: [AXUIElement] = []
+        var compositorWindows: [[String: Any]]?
         let windows = elements.compactMap { element -> AppWindow? in
             AXUIElementSetMessagingTimeout(element, 0.06)
             var roleValue: CFTypeRef?
@@ -179,12 +180,32 @@ final class WindowController {
             // Preserve real untitled standard windows and active custom dialogs.
             if title.isEmpty, let subrole, subrole != kAXStandardWindowSubrole && subrole != kAXDialogSubrole,
                !isFocused, (AX.value(element, kAXMainAttribute) as Bool?) == false { return nil }
+            let minimized: Bool = AX.value(element, kAXMinimizedAttribute) ?? false
+            let fullScreen: Bool = AX.value(element, "AXFullScreen") ?? false
+            // Some apps expose invisible floating helpers as focused AXDialogs.
+            // Focus alone is not evidence that such a window has visible content.
+            // Require positive compositor evidence; absence/ambiguous geometry
+            // must not hide real dialogs, minimized windows or other Spaces.
+            if title.isEmpty, subrole == kAXDialogSubrole, !minimized, !fullScreen,
+               (AX.value(element, kAXMainAttribute) as Bool?) == false {
+                if compositorWindows == nil {
+                    compositorWindows = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+                }
+                let matches = (compositorWindows ?? []).filter { info in
+                    guard (info[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier,
+                          let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                          let bounds = CGRect(dictionaryRepresentation: bounds) else { return false }
+                    return bounds == frame
+                }
+                if !matches.isEmpty, matches.allSatisfy({ info in
+                    (info[kCGWindowAlpha as String] as? Double) == 0 &&
+                    (info[kCGWindowLayer as String] as? Int).map { $0 > 0 } == true
+                }) { return nil }
+            }
             seen.append(element)
             let id = windowKey(for: element, pid: app.processIdentifier).id
             var writable = DarwinBoolean(false)
             AXUIElementIsAttributeSettable(element, kAXMinimizedAttribute as CFString, &writable)
-            let minimized: Bool = AX.value(element, kAXMinimizedAttribute) ?? false
-            let fullScreen: Bool = AX.value(element, "AXFullScreen") ?? false
             if isFocused, !minimized { recent[app.processIdentifier] = id }
             return AppWindow(element: element, key: WindowKey(pid: app.processIdentifier, id: id),
                              title: title.isEmpty ? "窗口 \(seen.count)" : title, frame: frame,
