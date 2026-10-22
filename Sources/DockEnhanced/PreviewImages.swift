@@ -11,6 +11,7 @@ final class PreviewImages {
     private(set) var cache: [WindowKey: NSImage] = [:]
     var onUpdate: ((WindowKey?) -> Void)?
     private let captureAccess: () -> Bool
+    private let sessionAvailable: () -> Bool
     private let capture: Capture
     private let now: () -> TimeInterval
     private struct Observation {
@@ -26,22 +27,38 @@ final class PreviewImages {
     private var permissionGranted = true
 
     init(captureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
+         sessionAvailable: @escaping () -> Bool = PreviewImages.isSessionAvailable,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          capture: @escaping Capture = PreviewImages.captureWindows) {
         self.captureAccess = captureAccess
+        self.sessionAvailable = sessionAvailable
         self.now = now
         self.capture = capture
+    }
+
+    static func isSessionAvailable() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return session["CGSSessionScreenIsLocked"] as? Bool != true &&
+            session[kCGSessionOnConsoleKey as String] as? Bool == true
     }
 
     /// A consumer leaving must not erase imagery still used by the other one.
     func updateAvailability(hasConsumers: Bool, captureGranted: Bool) {
         self.hasConsumers = hasConsumers
+        if hasConsumers && !sessionAvailable() {
+            suspendCapture()
+            return
+        }
         permissionGranted = captureGranted
         if (!hasConsumers || !captureGranted) && (activeCapture != nil || !cache.isEmpty) { clear() }
     }
 
     @discardableResult
     func refresh(_ windows: [AppWindow]) -> Task<Void, Never>? {
+        guard sessionAvailable() else {
+            suspendCapture()
+            return nil
+        }
         guard hasConsumers, permissionGranted, captureAccess() else {
             clear()
             return nil
@@ -66,7 +83,7 @@ final class PreviewImages {
         let revisions = Dictionary(visible.map { ($0.key, observations[$0.key]!.revision) }, uniquingKeysWith: { first, _ in first })
         return Task { @MainActor in
             defer { if self.activeCapture == token { self.activeCapture = nil } }
-            let current: @MainActor () -> Bool = { self.generation == requestedGeneration && self.hasConsumers && self.permissionGranted && self.captureAccess() }
+            let current: @MainActor () -> Bool = { self.sessionAvailable() && self.generation == requestedGeneration && self.hasConsumers && self.permissionGranted && self.captureAccess() }
             do {
                 try await self.capture(visible, current) { key, image in
                     guard current(), let revision = revisions[key],
@@ -86,7 +103,16 @@ final class PreviewImages {
                 // Titles, icons and previous images remain usable on capture failure.
             }
             // A permission change during capture also clears existing images.
-            if self.hasConsumers && self.permissionGranted && !self.captureAccess() { self.clear() }
+            if self.sessionAvailable() && self.hasConsumers && self.permissionGranted && !self.captureAccess() { self.clear() }
+        }
+    }
+
+    // Retire callbacks from captures interrupted by locking, without losing the
+    // last usable image (minimized windows cannot be recaptured after unlocking).
+    private func suspendCapture() {
+        if activeCapture != nil {
+            generation += 1
+            activeCapture = nil
         }
     }
 
