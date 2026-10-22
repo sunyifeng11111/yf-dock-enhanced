@@ -98,6 +98,22 @@ func checkPreviewSettings() async -> Int32 {
         await afterRestore.value
     }
     require(restoreImages.cache[sample.key] === picture, "a fresh stable screenshot replaces the placeholder after restoration")
+    var sessionActive = true
+    var sessionPermission = true
+    let sessionImages = PreviewImages(captureAccess: { sessionPermission }, sessionAvailable: { sessionActive }, capture: { windows, _, publish in
+        for window in windows { publish(window.key, picture) }
+    })
+    await sessionImages.refresh([sample])?.value
+    sessionActive = false
+    sessionPermission = false
+    sessionImages.updateAvailability(hasConsumers: true, captureGranted: false)
+    await sessionImages.refresh([minimized])?.value
+    require(sessionImages.cache[sample.key] === picture, "locking with temporarily unavailable capture retains the thumbnail")
+    sessionActive = true
+    sessionPermission = true
+    sessionImages.updateAvailability(hasConsumers: true, captureGranted: true)
+    await sessionImages.refresh([minimized])?.value
+    require(sessionImages.cache[sample.key] === picture, "unlocking preserves thumbnails for minimized windows that cannot be recaptured")
     var captureAllowed = true
     let gate = ControlledImageCapture()
     let revocable = PreviewImages(captureAccess: { captureAllowed }, capture: gate.capture)
