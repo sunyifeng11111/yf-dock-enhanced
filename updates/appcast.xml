@@ -4,17 +4,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Dock Enhanced</title>
         <item>
-            <title>0.6.12</title>
-            <pubDate>Fri, 23 Oct 2026 00:10:20 +0800</pubDate>
+            <title>0.6.13</title>
+            <pubDate>Fri, 23 Oct 2026 00:33:23 +0800</pubDate>
             <link>https://github.com/sunyifeng11111/yf-dock-enhanced/releases</link>
-            <sparkle:version>23</sparkle:version>
-            <sparkle:shortVersionString>0.6.12</sparkle:shortVersionString>
+            <sparkle:version>24</sparkle:version>
+            <sparkle:shortVersionString>0.6.13</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/sunyifeng11111/yf-dock-enhanced/releases/download/v0.6.12/Dock-Enhanced-0.6.12-macOS-arm64.dmg" length="2708006" type="application/octet-stream" sparkle:edSignature="I4vY0s3gppp3eM+LHZxhnaws3RcUkIwEJrlGC0B8qbr3BjGmkTxHb5nZ4bNECQzfTZRwvjQfUQlhF5sIrTmvAA=="></enclosure>
+            <enclosure url="https://github.com/sunyifeng11111/yf-dock-enhanced/releases/download/v0.6.13/Dock-Enhanced-0.6.13-macOS-arm64.dmg" length="2710649" type="application/octet-stream" sparkle:edSignature="4EiCr3EQGW0lGPLDNalsi4m7UdrFLizek0zKB5GKiX+cEafj11bi+w1SLDGldxvw73Ltd4mfsmejj0AJ4WZVDw=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: PCmfhTwxSeVA1+Yhj8y9dLN0s0ff1WZYZbjlToeImDLpJuF0XNTPjrJlSVVFk0HhjovvknjmJegQHD9+ILGkBA==
+edSignature: H6eKZ04rcf06kiJa1AzqyDMPD1jxXyWriWI7skYa4gYnluUnVGVG8Zp+R8yEQrEm7dtYK8QXnMeT8x5LEX6BBg==
 length: 1246
 -->
