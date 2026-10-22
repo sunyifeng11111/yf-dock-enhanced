@@ -40,7 +40,8 @@ if let index = CommandLine.arguments.firstIndex(of: "--probe-fixture-inventory")
     exit(windows.count == 2 ? 0 : 3)
 }
 let delegate: NSApplicationDelegate
-if CommandLine.arguments.contains("--check-thumbnail-delivery") { delegate = ThumbnailDeliveryCheck() }
+if CommandLine.arguments.contains("--check-transparent-window-inventory") { delegate = TransparentWindowInventoryCheck() }
+else if CommandLine.arguments.contains("--check-thumbnail-delivery") { delegate = ThumbnailDeliveryCheck() }
 else if let index = CommandLine.arguments.firstIndex(of: "--check-thumbnail-recovery"), CommandLine.arguments.count > index + 2 {
     let urls = CommandLine.arguments.dropFirst(index + 1).prefix { !$0.hasPrefix("--") }.map { URL(fileURLWithPath: $0) }
     delegate = WindowSwitcherThumbnailRecoveryCheck(urls: urls)
