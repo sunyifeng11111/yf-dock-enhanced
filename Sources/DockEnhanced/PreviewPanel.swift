@@ -224,21 +224,34 @@ final class PreviewPanel {
     }
 }
 
+/// Keep the glass background separate from thumbnails so the material does not
+/// apply its content treatment to preview images.
 func makeWindowPreviewBackground(content: NSView) -> NSView {
-        if #available(macOS 26.0, *) {
-            let glass = NSGlassEffectView(frame: content.frame)
-            glass.style = .regular
-            glass.cornerRadius = 32
-            glass.contentView = content
-            return glass
-        }
-        let blur = NSVisualEffectView(frame: content.frame)
+    let surface = NSView(frame: content.frame)
+    surface.wantsLayer = true
+    surface.layer?.cornerRadius = 26
+    surface.layer?.cornerCurve = .continuous
+    surface.layer?.masksToBounds = true
+    let background: NSView
+    if #available(macOS 26.0, *) {
+        let glass = NSGlassEffectView(frame: surface.bounds)
+        glass.style = .regular
+        glass.cornerRadius = 26
+        background = glass
+    } else {
+        let blur = NSVisualEffectView(frame: surface.bounds)
         blur.material = .popover
         blur.blendingMode = .behindWindow
         blur.state = .active
         blur.wantsLayer = true
-        blur.layer?.cornerRadius = 32
+        blur.layer?.cornerRadius = 26
         blur.layer?.masksToBounds = true
-        blur.addSubview(content)
-        return blur
+        background = blur
     }
+    background.autoresizingMask = [.width, .height]
+    surface.addSubview(background)
+    content.frame = surface.bounds
+    content.autoresizingMask = [.width, .height]
+    surface.addSubview(content)
+    return surface
+}
