@@ -328,7 +328,6 @@ private final class SwitcherCard: NSView {
     private let thumbnail = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let appName = NSTextField(labelWithString: "")
-    private let minimizedBadge = NSTextField(labelWithString: L("已最小化"))
     private let appIcon = NSImageView()
     private var hasPreview = false
     init(candidate: SwitcherCandidate, frame: CGRect) {
@@ -355,11 +354,6 @@ private final class SwitcherCard: NSView {
         appName.textColor = .labelColor
         appName.lineBreakMode = .byTruncatingTail
         addSubview(appName)
-        minimizedBadge.frame = CGRect(x: frame.width - 78, y: 166, width: 70, height: 16)
-        minimizedBadge.font = .systemFont(ofSize: 10)
-        minimizedBadge.textColor = .secondaryLabelColor
-        minimizedBadge.alignment = .right
-        addSubview(minimizedBadge)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         update(candidate: candidate)
@@ -368,14 +362,12 @@ private final class SwitcherCard: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
     func update(candidate: SwitcherCandidate) {
         self.candidate = candidate
-        minimizedBadge.stringValue = L("已最小化")
         title.stringValue = candidate.window.title.isEmpty ? L("无标题窗口") : candidate.window.title
         appName.stringValue = candidate.app.localizedName ?? L("应用")
         appIcon.image = candidate.app.icon
         let minimized = candidate.window.state.minimized
-        minimizedBadge.isHidden = !minimized
         appName.frame = CGRect(x: 52, y: 16, width: frame.width - 64, height: 20)
-        title.frame = CGRect(x: 10, y: 165, width: frame.width - (minimized ? 94 : 20), height: 20)
+        title.frame = CGRect(x: 10, y: 165, width: frame.width - 20, height: 20)
         appName.toolTip = appName.stringValue
         title.toolTip = title.stringValue
         setAccessibilityLabel("\(appName.stringValue) · \(title.stringValue)\(minimized ? L(" · 已最小化") : "")")
