@@ -336,23 +336,23 @@ private final class SwitcherCard: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = 16
-        thumbnail.frame = CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
+        thumbnail.frame = CGRect(x: 8, y: 50, width: frame.width - 16, height: 108)
         thumbnail.imageScaling = .scaleProportionallyUpOrDown
         thumbnail.imageAlignment = .alignCenter
         thumbnail.wantsLayer = true
         thumbnail.layer?.cornerRadius = 6
         thumbnail.layer?.masksToBounds = true
         addSubview(thumbnail)
-        title.frame = CGRect(x: 10, y: 143, width: frame.width - 20, height: 20)
-        title.font = .systemFont(ofSize: 13)
-        title.alignment = .center
+        title.frame = CGRect(x: 10, y: 165, width: frame.width - 20, height: 20)
+        title.font = .systemFont(ofSize: 12)
+        title.alignment = .left
         title.lineBreakMode = .byTruncatingTail
         addSubview(title)
-        appIcon.frame = CGRect(x: 12, y: 166, width: 16, height: 16)
+        appIcon.frame = CGRect(x: 12, y: 10, width: 32, height: 32)
         appIcon.imageScaling = .scaleProportionallyUpOrDown
         addSubview(appIcon)
-        appName.font = .systemFont(ofSize: 11)
-        appName.textColor = .secondaryLabelColor
+        appName.font = .systemFont(ofSize: 14, weight: .semibold)
+        appName.textColor = .labelColor
         appName.lineBreakMode = .byTruncatingTail
         addSubview(appName)
         minimizedBadge.frame = CGRect(x: frame.width - 78, y: 166, width: 70, height: 16)
@@ -374,14 +374,17 @@ private final class SwitcherCard: NSView {
         appIcon.image = candidate.app.icon
         let minimized = candidate.window.state.minimized
         minimizedBadge.isHidden = !minimized
-        appName.frame = CGRect(x: 34, y: 165, width: frame.width - (minimized ? 120 : 46), height: 18)
+        appName.frame = CGRect(x: 52, y: 16, width: frame.width - 64, height: 20)
+        title.frame = CGRect(x: 10, y: 165, width: frame.width - (minimized ? 94 : 20), height: 20)
+        appName.toolTip = appName.stringValue
+        title.toolTip = title.stringValue
         setAccessibilityLabel("\(appName.stringValue) · \(title.stringValue)\(minimized ? L(" · 已最小化") : "")")
         setAccessibilityHelp(minimized && hasPreview ? L("已最小化 · 缓存画面") : L("选择并切换此窗口"))
     }
     func update(image: NSImage?) {
         hasPreview = image != nil
         thumbnail.image = image ?? candidate.app.icon
-        thumbnail.frame = image == nil ? CGRect(x: (frame.width - 64) / 2, y: 39, width: 64, height: 64) : CGRect(x: 8, y: 8, width: frame.width - 16, height: 126)
+        thumbnail.frame = image == nil ? CGRect(x: (frame.width - 64) / 2, y: 72, width: 64, height: 64) : CGRect(x: 8, y: 50, width: frame.width - 16, height: 108)
         setAccessibilityHelp(candidate.window.state.minimized && image != nil ? L("已最小化 · 缓存画面") : L("选择并切换此窗口"))
     }
     func select(_ selected: Bool) {
