@@ -61,6 +61,43 @@ func checkPreviewSettings() async -> Int32 {
                               state: WindowState(id: 501, minimized: true, canMinimize: true, fullScreen: false))
     await images.refresh([minimized])?.value
     require(images.cache[minimized.key] === picture, "minimized windows retain the last available image")
+    var demandCaptures = 0
+    let demandGate = ControlledImageCapture()
+    let demandImages = PreviewImages(captureAccess: { true }, capture: { windows, current, publish in
+        demandCaptures += 1
+        try await demandGate.capture(windows, current: current, publish: publish)
+    })
+    demandImages.setCaptureDemand(active: false)
+    require(demandImages.refresh([sample]) == nil && demandCaptures == 0,
+            "idle panels never request a screenshot even with recording permission")
+    demandImages.setCaptureDemand(active: true)
+    let queuedRequest = demandImages.refresh([sample])
+    demandImages.setCaptureDemand(active: false)
+    await queuedRequest?.value
+    require(demandCaptures == 0, "closing before the queued task runs never reaches the screenshot API")
+    demandImages.setCaptureDemand(active: true)
+    let initialDemand = demandImages.refresh([sample])
+    await demandGate.waitUntilRequested()
+    demandGate.finish(key: sample.key, image: picture)
+    await initialDemand?.value
+    let retiredDemand = demandImages.refresh([sample])
+    await demandGate.waitUntilRequested()
+    demandImages.setCaptureDemand(active: false)
+    require(demandImages.cache[sample.key] === picture && demandImages.refresh([sample]) == nil,
+            "hiding the last panel retains its thumbnail while preventing further capture")
+    demandImages.setCaptureDemand(active: true)
+    demandGate.finish(key: sample.key, image: NSImage(size: NSSize(width: 30, height: 20)))
+    await retiredDemand?.value
+    require(demandImages.cache[sample.key] === picture, "reopening a panel cannot revive a screenshot retired when it closed")
+    let resumedDemand = demandImages.refresh([sample])
+    await demandGate.waitUntilRequested()
+    let freshPicture = NSImage(size: NSSize(width: 40, height: 30))
+    demandGate.finish(key: sample.key, image: freshPicture)
+    await resumedDemand?.value
+    require(demandImages.cache[sample.key] === freshPicture, "reopening permits a fresh screenshot again")
+    demandImages.setCaptureDemand(active: false)
+    demandImages.updateAvailability(hasConsumers: true, captureGranted: false)
+    require(demandImages.cache.isEmpty, "explicit permission revocation still clears images while capture is idle")
     // Reproduce a screenshot that starts while visible and completes after a
     // later inventory has observed the window being minimized.
     let animationGate = ControlledImageCapture()

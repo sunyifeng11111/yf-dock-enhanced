@@ -25,6 +25,7 @@ final class PreviewImages {
     private var generation = 0
     private var hasConsumers = true
     private var permissionGranted = true
+    private var captureDemand = true
 
     init(captureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
          sessionAvailable: @escaping () -> Bool = PreviewImages.isSessionAvailable,
@@ -53,6 +54,13 @@ final class PreviewImages {
         if (!hasConsumers || !captureGranted) && (activeCapture != nil || !cache.isEmpty) { clear() }
     }
 
+    /// Closing a panel stops new screenshots and retires pending callbacks,
+    /// while retaining memory-only thumbnails for the next presentation.
+    func setCaptureDemand(active: Bool) {
+        captureDemand = active
+        if !active { suspendCapture() }
+    }
+
     @discardableResult
     func refresh(_ windows: [AppWindow]) -> Task<Void, Never>? {
         guard sessionAvailable() else {
@@ -63,6 +71,7 @@ final class PreviewImages {
             clear()
             return nil
         }
+        guard captureDemand else { return nil }
         // Observe transitions even while another screenshot is suspended. A
         // visible -> minimized -> visible cycle must also retire the old request.
         let time = now()
@@ -83,7 +92,8 @@ final class PreviewImages {
         let revisions = Dictionary(visible.map { ($0.key, observations[$0.key]!.revision) }, uniquingKeysWith: { first, _ in first })
         return Task { @MainActor in
             defer { if self.activeCapture == token { self.activeCapture = nil } }
-            let current: @MainActor () -> Bool = { self.sessionAvailable() && self.generation == requestedGeneration && self.hasConsumers && self.permissionGranted && self.captureAccess() }
+            let current: @MainActor () -> Bool = { self.sessionAvailable() && self.generation == requestedGeneration && self.hasConsumers && self.captureDemand && self.permissionGranted && self.captureAccess() }
+            guard current() else { return }
             do {
                 try await self.capture(visible, current) { key, image in
                     guard current(), let revision = revisions[key],
@@ -127,6 +137,7 @@ final class PreviewImages {
 
     @MainActor private static func captureWindows(_ windows: [AppWindow], isCurrent: @escaping @MainActor () -> Bool,
                                                  publish: @escaping @MainActor (WindowKey, NSImage) -> Void) async throws {
+        guard isCurrent() else { return }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         guard isCurrent() else { return }
         let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []

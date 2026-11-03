@@ -101,6 +101,7 @@ final class PreviewPanel {
     private var presented = false
     private var transitionGeneration = 0
     var onSelect: ((AppWindow, NSRunningApplication) -> Void)?
+    var onVisibilityChanged: (() -> Void)?
 
     init() {
         panel.level = .popUpMenu
@@ -175,6 +176,7 @@ final class PreviewPanel {
             }
         }
         panel.orderFrontRegardless()
+        if !wasPresented { onVisibilityChanged?() }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -202,7 +204,9 @@ final class PreviewPanel {
 
     func hide(animated: Bool = true) {
         guard presented || !animated else { return }
+        let wasPresented = presented
         presented = false
+        if wasPresented { onVisibilityChanged?() }
         transitionGeneration += 1
         let generation = transitionGeneration
         cards.removeAll()

@@ -49,6 +49,9 @@ final class ThumbnailDeliveryCheck: NSObject, NSApplicationDelegate {
             for iteration in 1...iterations {
                 service.switcher.panel.show(candidates: [candidate], selected: candidate.id, screen: NSScreen.main)
                 service.switcher.panel.panel.contentView?.layoutSubtreeIfNeeded()
+                // This isolated delivery check has no running input service;
+                // explicitly request capture for its visible controlled panel.
+                service.images.setCaptureDemand(active: true)
                 await service.images.refresh([window])?.value
                 guard deliveries == iteration, let image = service.images.cache[window.key],
                       Self.contains(image, in: service.switcher.panel.panel.contentView) else {
@@ -57,6 +60,7 @@ final class ThumbnailDeliveryCheck: NSObject, NSApplicationDelegate {
                     break
                 }
                 service.switcher.panel.hide()
+                service.images.setCaptureDemand(active: false)
                 service.images.clear()
             }
             service.stop()

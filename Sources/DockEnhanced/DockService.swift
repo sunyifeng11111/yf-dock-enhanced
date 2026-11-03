@@ -16,7 +16,9 @@ final class DockService {
     private let captureAccess: () -> Bool
     private let accessibilityAccess: () -> Bool
     let preview = PreviewPanel()
-    lazy var switcher = NativeWindowSwitcher(controller: controller)
+    lazy var switcher = NativeWindowSwitcher(controller: controller) {
+        didSet { bindSwitcherImages() }
+    }
     private(set) var switcherEnabled = true
     private(set) var switcherAvailable = false
     private(set) var switcherUnavailableReason = "快捷键接管尚未就绪"
@@ -45,6 +47,14 @@ final class DockService {
         self.captureAccess = captureAccess
         self.accessibilityAccess = accessibilityAccess
         self.images = capture.map { PreviewImages(captureAccess: captureAccess, capture: $0) } ?? PreviewImages(captureAccess: captureAccess)
+        images.setCaptureDemand(active: false)
+        preview.onVisibilityChanged = { [weak self] in
+            guard let self else { return }
+            self.refreshImageDemand()
+            // Each presentation gets a fresh image, even if it was reopened
+            // within the normal one-second preview refresh interval.
+            self.lastCapture = .distantPast
+        }
         preview.onSelect = { [weak self] window, app in
             self?.controller.reveal(window, app: app)
             self?.hovered = nil
@@ -57,11 +67,33 @@ final class DockService {
             if let key { self.switcher.updatePreviewImage(self.images.cache[key], for: key.switcherID) }
             else { self.switcher.clearPreviewImages() }
         }
-        switcher.onCandidatesChanged = { [weak self] candidates in
-            guard let self, self.running, self.switcherEnabled else { return }
-            self.publishSwitcherImages()
-            self.images.refresh(candidates.map(\.window))
+        bindSwitcherImages()
+    }
+
+    private func bindSwitcherImages() {
+        switcher.panel.onVisibilityChanged = { [weak self] in
+            guard let self else { return }
+            self.refreshImageDemand()
+            if self.running, self.switcherEnabled, self.switcher.panel.panel.isVisible {
+                self.publishSwitcherImages()
+                self.refreshSwitcherImages(self.switcher.candidates)
+            }
         }
+        switcher.onCandidatesChanged = { [weak self] candidates in
+            guard let self, self.running, self.switcherEnabled, self.switcher.panel.panel.isVisible else { return }
+            self.publishSwitcherImages()
+            self.refreshSwitcherImages(candidates)
+        }
+    }
+
+    private func refreshSwitcherImages(_ candidates: [SwitcherCandidate]) {
+        let presented = Set(switcher.panel.windowIDs)
+        images.refresh(candidates.filter { presented.contains($0.id) }.map(\.window))
+    }
+
+    private func refreshImageDemand() {
+        images.setCaptureDemand(active: running && ((previewsEnabled && preview.isVisible) ||
+            (switcherEnabled && switcher.panel.panel.isVisible)))
     }
 
     private func publishSwitcherImages() {
@@ -73,6 +105,7 @@ final class DockService {
 
     private func refreshImageAvailability() {
         images.updateAvailability(hasConsumers: running && (previewsEnabled || switcherEnabled), captureGranted: captureAccess())
+        refreshImageDemand()
     }
 
     func configure(previewsEnabled: Bool, clickEnabled: Bool, switcherEnabled: Bool = true) {
@@ -325,7 +358,6 @@ final class DockService {
                 prepared[app.processIdentifier] = windows
                 if now.timeIntervalSince(lastCapture) > 2 {
                     lastCapture = now
-                    if previewsEnabled, let recent = controller.recentWindow(of: app, in: windows) { images.refresh([recent]) }
                     controller.forgetTerminatedApps()
                     let live = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
                     prepared = prepared.filter { live.contains($0.key) }
@@ -344,7 +376,6 @@ final class DockService {
                 preview.hide()
                 let windows = controller.windows(of: item.app)
                 prepared[item.app.processIdentifier] = windows
-                if previewsEnabled { images.refresh(windows) }
             }
             if previewsEnabled, hoverPolicy.allowsPreview(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate,
                                          delay: PreviewPreferences.hoverDelay, menuOpen: contextMenuInteraction),

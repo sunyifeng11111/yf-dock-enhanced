@@ -409,6 +409,7 @@ private func makeSwitcherPanel(title: String, ignoresMouseEvents: Bool = false) 
 
 final class WindowSwitcherPanel {
     let panel = makeSwitcherPanel(title: L("窗口切换"))
+    var onVisibilityChanged: (() -> Void)?
     private var cards: [SwitcherWindowID: SwitcherCard] = [:]
     private var images: [SwitcherWindowID: NSImage] = [:]
     private var scroll: NSScrollView?
@@ -466,6 +467,7 @@ final class WindowSwitcherPanel {
         if !wasVisible {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
+            onVisibilityChanged?()
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.18
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -491,7 +493,12 @@ final class WindowSwitcherPanel {
         images = [:]
         for card in cards.values { card.update(image: nil) }
     }
-    func hide() { panel.orderOut(nil); windowIDs = []; cards = [:]; scroll = nil; selected = nil; layoutFrame = nil }
+    func hide() {
+        let wasVisible = panel.isVisible
+        panel.orderOut(nil)
+        windowIDs = []; cards = [:]; scroll = nil; selected = nil; layoutFrame = nil
+        if wasVisible { onVisibilityChanged?() }
+    }
 }
 
 /// Nonactivating, bounded feedback that never substitutes another window.

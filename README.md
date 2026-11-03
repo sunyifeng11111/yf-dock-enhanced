@@ -102,6 +102,7 @@ When an update is found, choose **Download and Update**, **Later**, or **Skip Th
 
 ## Privacy and compatibility
 
+- **Thumbnails on demand**: Screenshots are taken only while a Dock preview or window switcher panel is visible. Closing the panels pauses capture and retains the memory cache. Full-screen video, ordinary idle use, and quick switching without opening the panel do not request screenshots. System Screen Recording authorization stays enabled; macOS controls when its capture indicator disappears.
 - **Local window processing**: Window features work locally. Update checks fetch a signed feed over HTTPS, and approved updates download from GitHub and its delivery network. No usage analytics, window content, titles, typed text, or thumbnails are uploaded. Thumbnails stay in memory, with a maximum of 64 cached images. Window titles and usage history are not written to disk. Stopping image services, revoking Screen Recording permission, or quitting clears the image cache.
 - **Minimized windows**: Previews use the last cached image. If none is available, they show the app icon and window title.
 - **Native Dock interactions**: Right-clicking, dragging, and clicks with modifier keys retain system behavior. Click-to-minimize does not handle full-screen windows or windows that cannot be minimized.

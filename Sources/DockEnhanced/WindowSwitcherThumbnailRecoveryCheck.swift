@@ -46,11 +46,17 @@ final class WindowSwitcherThumbnailRecoveryCheck: NSObject, NSApplicationDelegat
                 let original = apps.flatMap { app in service.controller.windows(of: app).map { SwitcherCandidate(window: $0, app: app) } }
                 try require(original.count == apps.count * (singleWindow ? 1 : 2), "disposable applications expose the expected real windows")
                 for _ in 0..<30 {
+                    if service.switcher.candidates.count == original.count { break }
+                    await pause(0.1)
+                }
+                try await openChooser()
+                for _ in 0..<30 {
                     if original.allSatisfy({ service.images.cache[$0.window.key] != nil }) { break }
                     service.images.refresh(original.map(\.window))
                     await pause(0.1)
                 }
                 try require(original.allSatisfy { service.images.cache[$0.window.key] != nil }, "all windows have real thumbnails before minimizing")
+                key(53); command(false); await pause(0.1)
                 try await checkUnavailableOwner(apps[0], expected: original)
                 let cycles = CommandLine.arguments.contains("--stress") ? 10 : 1
                 for cycle in 1...cycles {
