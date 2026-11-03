@@ -163,6 +163,13 @@ scripts/build-dmg.sh
 swift run --build-system native DockCoreChecks
 ```
 
+检查后台窗口扫描的响应与取消行为，或仅验证测试应用打包和加载（不移动鼠标）：
+
+```sh
+swift run --build-system native DockEnhanced --check-dock-inventory
+scripts/check-native.sh --fixtures-only
+```
+
 需要验证真实 Dock 或窗口切换行为时，可运行：
 
 ```sh

@@ -23,7 +23,7 @@ func checkFeatureServices() async -> Int32 {
     let service = DockService(captureAccess: { recording }, capture: { windows, current, publish in
         captures += 1
         for window in windows where current() { publish(window.key, picture) }
-    })
+    }, inventoryScan: { _ in DockWindowInventory.Observation(windows: [], recentID: nil) })
     // This check supplies its own cards. Keep background scans confined to an
     // empty controlled inventory rather than depending on the user's apps.
     service.switcher = NativeWindowSwitcher(controller: service.controller, applicationFilter: { _ in false })
@@ -62,6 +62,8 @@ func checkFeatureServices() async -> Int32 {
             require(service.images.cache[window.key] === picture, name + " permits capture with a visible consumer")
             service.preview.hide(animated: false)
             service.switcher.panel.hide()
+            require(service.preview.panel.contentView == nil && service.switcher.panel.panel.contentView == nil,
+                    name + " releases hidden card views instead of retaining their screenshots")
             require(service.images.refresh([window]) == nil && service.images.cache[window.key] === picture,
                     name + " stops capture on close and preserves cached imagery")
         } else { require(service.images.cache.isEmpty, name + " has no retained image consumers") }
@@ -84,7 +86,11 @@ func checkFeatureServices() async -> Int32 {
     }
     require(!containsPicture(service.switcher.panel.panel.contentView), "the actual card is usable with its title and icon before capture completes")
     await service.images.refresh([window])?.value
-    require(containsPicture(service.switcher.panel.panel.contentView), "async imagery reaches an actual visible native card")
+    // These manually supplied cards have no keyboard selection session. An
+    // inventory render may dismiss them during the await; reopen from the image
+    // store rather than inspecting a dismissed panel's old content view.
+    service.switcher.panel.show(candidates: [SwitcherCandidate(window: window, app: .current)], selected: window.key.switcherID, screen: NSScreen.main)
+    require(containsPicture(service.switcher.panel.panel.contentView), "completed imagery is available on the next native card presentation")
     service.preview.show(item: DockItem(app: .current, frame: window.frame), windows: [window], images: service.images)
     service.switcher.panel.hide()
     // The hover feature is disabled, so a manually shown hover panel cannot
@@ -104,6 +110,16 @@ func checkFeatureServices() async -> Int32 {
             service.switcher.panel.windowIDs == [window.key.switcherID] && service.switcher.panel.panel.isVisible,
             "recording revocation clears visible card imagery and cache while keyboard switching remains available")
     service.switcher.panel.hide()
+    recording = true
+    service.configure(previewsEnabled: true, clickEnabled: false, switcherEnabled: false)
+    service.preview.show(item: DockItem(app: .current, frame: window.frame), windows: [window], images: service.images)
+    await service.images.refresh([window])?.value
+    require(containsPicture(service.preview.panel.contentView), "the controlled Dock preview holds a fresh thumbnail")
+    service.preview.hide()
+    recording = false
+    service.configure(previewsEnabled: true, clickEnabled: false, switcherEnabled: false)
+    require(service.images.cache.isEmpty && !containsPicture(service.preview.panel.contentView),
+            "revocation releases a fading Dock preview's image before its dismissal animation finishes")
     service.configure(previewsEnabled: false, clickEnabled: true, switcherEnabled: false)
     require(service.running && !service.switcherAvailable && service.images.cache.isEmpty,
             "click-only mode runs without recording or keyboard enhancement")

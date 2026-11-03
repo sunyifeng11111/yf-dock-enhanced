@@ -2,6 +2,10 @@ import AppKit
 import ApplicationServices
 
 #if DEBUG
+if CommandLine.arguments.contains("--check-dock-inventory") {
+    Task { @MainActor in exit(await checkDockWindowInventory()) }
+    RunLoop.main.run()
+}
 if CommandLine.arguments.contains("--check-application-updates") {
     _ = NSApplication.shared
     Task { @MainActor in exit(await checkApplicationUpdates()) }

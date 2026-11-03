@@ -13,6 +13,7 @@ final class DockService {
     let controller = WindowController()
     let locator = DockLocator()
     let images: PreviewImages
+    let inventory: DockWindowInventory
     private let captureAccess: () -> Bool
     private let accessibilityAccess: () -> Bool
     let preview = PreviewPanel()
@@ -36,6 +37,7 @@ final class DockService {
     private var lastInside = Date.distantPast
     private var lastRefresh = Date.distantPast
     private var lastCapture = Date.distantPast
+    private var lastCleanup = Date.distantPast
     private var prepared: [pid_t: [AppWindow]] = [:]
     private var pending: (down: CGEvent, item: DockItem, windows: [AppWindow], action: DockClickAction)?
     private var hoverPolicy = PreviewHoverPolicy()
@@ -43,10 +45,21 @@ final class DockService {
     private var contextMenuStarted = Date.distantPast
 
     init(captureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
-         accessibilityAccess: @escaping () -> Bool = { AXIsProcessTrusted() }, capture: PreviewImages.Capture? = nil) {
+         accessibilityAccess: @escaping () -> Bool = { AXIsProcessTrusted() }, capture: PreviewImages.Capture? = nil,
+         inventoryScan: DockWindowInventory.Scan? = nil) {
         self.captureAccess = captureAccess
         self.accessibilityAccess = accessibilityAccess
         self.images = capture.map { PreviewImages(captureAccess: captureAccess, capture: $0) } ?? PreviewImages(captureAccess: captureAccess)
+        self.inventory = DockWindowInventory(scan: inventoryScan)
+        inventory.onUpdate = { [weak self] app, observation in
+            guard let self, self.running else { return }
+            self.prepared[app.processIdentifier] = observation.windows
+            self.controller.observeWindows(observation.windows, of: app, recentID: observation.recentID)
+            if self.previewsEnabled, self.preview.isVisible,
+               let item = self.hovered, item.app.processIdentifier == app.processIdentifier {
+                self.refreshPreview(item: item, windows: observation.windows)
+            }
+        }
         images.setCaptureDemand(active: false)
         preview.onVisibilityChanged = { [weak self] in
             guard let self else { return }
@@ -56,6 +69,7 @@ final class DockService {
             self.lastCapture = .distantPast
         }
         preview.onSelect = { [weak self] window, app in
+            self?.inventory.invalidate(app.processIdentifier)
             self?.controller.reveal(window, app: app)
             self?.hovered = nil
             self?.hoverPolicy.beginInteraction(appID: app.processIdentifier)
@@ -167,6 +181,7 @@ final class DockService {
         source = nil
         tap = nil
         running = false
+        inventory.invalidateAll()
         keyboardHookVerified = false
         invalidateSwitcherCapability(reason: "快捷键接管尚未就绪")
         switcher.stop()
@@ -238,6 +253,7 @@ final class DockService {
             self.pending = nil
             let close = hypot(event.location.x - pending.down.location.x, event.location.y - pending.down.location.y) <= 5
             if close && !hasModifiers(event) && controller.perform(pending.action, app: pending.item.app, windows: pending.windows) {
+                inventory.invalidate(pending.item.app.processIdentifier)
                 // Publish the confirmed command locally, then refresh Accessibility outside
                 // the tap callback so a slow application cannot stall mouse delivery.
                 let targetID: Int
@@ -259,7 +275,7 @@ final class DockService {
                 }
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.running else { return }
-                    self.prepared[pending.item.app.processIdentifier] = self.controller.windows(of: pending.item.app)
+                    self.inventory.refresh(pending.item.app)
                 }
                 preview.hide()
                 hovered = nil
@@ -354,10 +370,9 @@ final class DockService {
         if now.timeIntervalSince(lastRefresh) > 0.4 {
             lastRefresh = now
             if let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getpid() {
-                let windows = controller.windows(of: app)
-                prepared[app.processIdentifier] = windows
-                if now.timeIntervalSince(lastCapture) > 2 {
-                    lastCapture = now
+                inventory.refresh(app)
+                if now.timeIntervalSince(lastCleanup) > 2 {
+                    lastCleanup = now
                     controller.forgetTerminatedApps()
                     let live = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
                     prepared = prepared.filter { live.contains($0.key) }
@@ -374,8 +389,7 @@ final class DockService {
             if item.app.processIdentifier != hovered?.app.processIdentifier {
                 hovered = item
                 preview.hide()
-                let windows = controller.windows(of: item.app)
-                prepared[item.app.processIdentifier] = windows
+                inventory.refresh(item.app)
             }
             if previewsEnabled, hoverPolicy.allowsPreview(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate,
                                          delay: PreviewPreferences.hoverDelay, menuOpen: contextMenuInteraction),
@@ -393,10 +407,11 @@ final class DockService {
         }
         if previewsEnabled, preview.isVisible, now.timeIntervalSince(lastCapture) > 1, let app = preview.app {
             lastCapture = now
-            let windows = controller.windows(of: app)
-            prepared[app.processIdentifier] = windows
-            if let item = hovered { refreshPreview(item: item, windows: windows) }
-            images.refresh(windows)
+            inventory.refresh(app)
+            if let windows = prepared[app.processIdentifier] {
+                if let item = hovered { refreshPreview(item: item, windows: windows) }
+                images.refresh(windows)
+            }
         }
     }
 

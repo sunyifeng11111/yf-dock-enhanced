@@ -265,6 +265,14 @@ final class WindowController {
         windows.first(where: { $0.key.id == recent[app.processIdentifier] }) ?? windows.first
     }
 
+    func observeWindows(_ windows: [AppWindow], of app: NSRunningApplication, recentID: Int?) {
+        if let recentID, windows.contains(where: { $0.key.id == recentID }) {
+            recent[app.processIdentifier] = recentID
+        } else if !windows.contains(where: { $0.key.id == recent[app.processIdentifier] }) {
+            recent[app.processIdentifier] = windows.first?.key.id
+        }
+    }
+
     func refreshFocusedWindow(of app: NSRunningApplication) {
         let owner = AXUIElementCreateApplication(app.processIdentifier)
         AXUIElementSetMessagingTimeout(owner, 0.04)

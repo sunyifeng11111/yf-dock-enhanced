@@ -163,6 +163,13 @@ Run the core behavior checks:
 swift run --build-system native DockCoreChecks
 ```
 
+Check background inventory responsiveness and cancellation, or fixture packaging without moving the pointer:
+
+```sh
+swift run --build-system native DockEnhanced --check-dock-inventory
+scripts/check-native.sh --fixtures-only
+```
+
 To check actual Dock and window-switching interactions:
 
 ```sh

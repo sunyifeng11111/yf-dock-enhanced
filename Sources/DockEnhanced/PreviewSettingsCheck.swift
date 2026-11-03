@@ -6,6 +6,8 @@ import DockCore
 /// No user window is read, moved, captured or activated by this check.
 @MainActor
 func checkPreviewSettings() async -> Int32 {
+    _ = NSApplication.shared
+    NSApp.setActivationPolicy(.accessory)
     var failures = 0
     var checks = 0
     func require(_ value: Bool, _ message: String) {
@@ -50,6 +52,21 @@ func checkPreviewSettings() async -> Int32 {
                            title: "Controlled image", frame: CGRect(x: 0, y: 0, width: 400, height: 300),
                            state: WindowState(id: 501, minimized: false, canMinimize: true, fullScreen: false))
     let picture = NSImage(size: NSSize(width: 40, height: 30))
+    let panel = WindowSwitcherPanel()
+    let candidate = SwitcherCandidate(window: sample, app: .current)
+    panel.prepareContent(candidates: [candidate], screen: NSScreen.main)
+    panel.updatePreviewImage(picture, for: candidate.id)
+    func containsPicture(_ view: NSView?) -> Bool {
+        guard let view else { return false }
+        return (view as? NSImageView)?.image === picture || view.subviews.contains { containsPicture($0) }
+    }
+    require(containsPicture(panel.panel.contentView), "controlled hidden content initially holds its thumbnail")
+    panel.hide()
+    panel.clearPreviewImages()
+    require(!containsPicture(panel.panel.contentView), "hiding then revoking image access releases thumbnails from hidden views")
+    panel.prepareContent(candidates: [candidate], screen: NSScreen.main)
+    require(!containsPicture(panel.panel.contentView), "reopening after image revocation cannot reuse a retired thumbnail")
+    panel.hide()
     let images = PreviewImages(captureAccess: { true }, capture: { windows, _, publish in
         for window in windows { publish(window.key, picture) }
     })

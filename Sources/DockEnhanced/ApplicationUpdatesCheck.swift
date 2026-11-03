@@ -38,6 +38,7 @@ func checkApplicationUpdates() async -> Int32 {
     var cancelled = 0
     updates.showUserInitiatedUpdateCheck { cancelled += 1 }
     require(updates.statusKey == "正在检查更新…" && updates.actions.count == 1, "manual check presents cancellable progress")
+    require(updates.isBusy, "manual checking displays the waiting progress indicator")
     updates.choose(updates.actions[0])
     require(cancelled == 1, "cancel invokes Sparkle cancellation exactly once")
     updates.showDownloadInitiated { cancelled += 1 }
@@ -50,6 +51,7 @@ func checkApplicationUpdates() async -> Int32 {
     require(cancelled == 2, "download cancellation is forwarded")
     updates.showDownloadDidStartExtractingUpdate()
     require(updates.actions.isEmpty, "extraction does not expose unsafe cancellation")
+    require(updates.isBusy, "verification continues to display busy progress")
     var installChoice: SPUUserUpdateChoice?
     updates.showReady(toInstallAndRelaunch: { installChoice = $0 })
     require(installChoice == .install, "explicitly approved download proceeds to installation and relaunch")
@@ -71,6 +73,7 @@ func checkApplicationUpdates() async -> Int32 {
         updates.updater(channelEngine, didFinishUpdateCycleFor: .updates, error: noUpdate)
     }
     require(updates.statusKey == "已是最新版本", "a successful check with no release shows up-to-date")
+    require(!updates.isBusy, "the up-to-date result stops the waiting progress indicator")
     updates.choose(updates.actions[0])
     require(updates.statusKey == "已是最新版本", "acknowledging no update cannot overwrite success with a failure")
     updates.updaterDidNotFindUpdate(channelEngine, error: noUpdate)

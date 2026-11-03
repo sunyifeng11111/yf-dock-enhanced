@@ -19,8 +19,14 @@ final class ThumbnailDeliveryCheck: NSObject, NSApplicationDelegate {
             fixture.isReleasedWhenClosed = false
             fixture.contentView?.wantsLayer = true
             fixture.contentView?.layer?.backgroundColor = NSColor.systemTeal.cgColor
+            let minimizedTwin = NSPanel(contentRect: fixture.frame, styleMask: [.titled, .miniaturizable, .nonactivatingPanel], backing: .buffered, defer: false)
+            minimizedTwin.title = fixture.title
+            minimizedTwin.isReleasedWhenClosed = false
+            minimizedTwin.setFrame(fixture.frame, display: false)
+            minimizedTwin.orderFrontRegardless()
+            minimizedTwin.miniaturize(nil)
             fixture.orderFront(nil)
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            try? await Task.sleep(nanoseconds: 750_000_000)
             let service = DockService()
             let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(fixture.windowNumber)) as? [[String: Any]])?.first
             guard let bounds = info?[kCGWindowBounds as String] as? NSDictionary,
@@ -64,8 +70,9 @@ final class ThumbnailDeliveryCheck: NSObject, NSApplicationDelegate {
                 service.images.clear()
             }
             service.stop()
+            minimizedTwin.close()
             fixture.close()
-            if result == 0 { print("PASS: \(deliveries) actual screenshots updated visible cards on the main thread") }
+            if result == 0 { print("PASS: \(deliveries) actual screenshots updated visible cards despite a same-title, same-frame minimized window") }
             fflush(stdout)
             exit(result)
         }

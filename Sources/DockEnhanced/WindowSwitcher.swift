@@ -497,6 +497,7 @@ final class WindowSwitcherPanel {
         let wasVisible = panel.isVisible
         panel.orderOut(nil)
         windowIDs = []; cards = [:]; scroll = nil; selected = nil; layoutFrame = nil
+        panel.contentView = nil
         if wasVisible { onVisibilityChanged?() }
     }
 }

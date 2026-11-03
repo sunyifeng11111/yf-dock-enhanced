@@ -5,6 +5,8 @@ import Sparkle
 /// Sparkle owns scheduling, signatures, replacement, recovery and relaunch.
 /// This adapter owns app-language UI and never opts into automatic downloads.
 final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, SPUUserDriver, NSWindowDelegate {
+    enum Phase { case idle, checking, available, downloading, extracting, installing, upToDate, failed }
+    @Published private(set) var phase = Phase.idle
     static let releasePage = URL(string: "https://github.com/sunyifeng11111/yf-dock-enhanced/releases/latest")!
     @Published var automaticChecks: Bool {
         didSet {
@@ -29,11 +31,16 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
         return NSApplication.shared.applicationIconImage
     }
     var currentVersion: String { bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? L("开发版") }
-    var isBusy: Bool { ["正在检查更新…", "正在下载更新…", "正在验证并准备更新…", "正在安装更新…"].contains(titleKey) }
+    var isBusy: Bool {
+        switch phase {
+        case .checking, .downloading, .extracting, .installing: return true
+        default: return false
+        }
+    }
     var panelHeight: CGFloat {
         if !errorDetail.isEmpty { return showErrorDetails ? 310 : 222 }
         if isBusy { return 224 }
-        return titleKey == "已是最新版本" ? 176 : 210
+        return phase == .upToDate ? 176 : 210
     }
     #if DEBUG
     var previewWindow: NSWindow? { window }
@@ -110,15 +117,17 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     // incompatibility and uses CFBundleVersion to prevent ordinary downgrades.
     func allowedChannels(for updater: SPUUpdater) -> Set<String> { [] }
     func updater(_ updater: SPUUpdater, shouldDownloadReleaseNotesForUpdate updateItem: SUAppcastItem) -> Bool { false }
-    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { statusKey = "发现新版本" }
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { statusKey = "已是最新版本" }
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) { phase = .available; statusKey = "发现新版本" }
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) { phase = .upToDate; statusKey = "已是最新版本" }
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
         let error = error as NSError
         // Sparkle also ends a successful no-update cycle through this callback,
         // after the user acknowledges the up-to-date dialog.
         if error.domain == SUSparkleErrorDomain && error.code == Int(SUError.noUpdateError.rawValue) {
+            phase = .upToDate
             statusKey = "已是最新版本"
         } else {
+            phase = .failed
             statusKey = "更新检查失败"
         }
     }
@@ -131,10 +140,12 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
         reply(SUUpdatePermissionResponse(automaticUpdateChecks: automaticChecks, automaticUpdateDownloading: false, sendSystemProfile: false))
     }
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        phase = .checking
         statusKey = "正在检查更新…"
         present(title: "软件更新", message: statusKey, actions: [UpdateAction("取消", action: cancellation)])
     }
     func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        phase = .available
         offeredVersion = appcastItem.displayVersionString
         statusKey = "发现新版本"
         if appcastItem.isInformationOnlyUpdate {
@@ -154,10 +165,12 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {}
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: Error) {}
     func showUpdateNotFoundWithError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        phase = .upToDate
         statusKey = "已是最新版本"
         present(title: statusKey, message: "", actions: [UpdateAction("完成", action: acknowledgement)])
     }
     func showUpdaterError(_ error: Error, acknowledgement: @escaping () -> Void) {
+        phase = .failed
         statusKey = "更新失败，仍可使用当前版本"
         errorDetail = error.localizedDescription
         present(title: "更新失败", message: statusKey, actions: [
@@ -170,6 +183,7 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
         ], detail: error.localizedDescription)
     }
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
+        phase = .downloading
         received = 0; expected = 0
         present(title: "正在下载更新…", message: "完成后将重新启动。", actions: [UpdateAction("取消", action: cancellation)])
     }
@@ -179,17 +193,22 @@ final class ApplicationUpdates: NSObject, ObservableObject, SPUUpdaterDelegate, 
         if expected > 0 { progress = min(1, Double(received) / Double(expected)) }
     }
     func showDownloadDidStartExtractingUpdate() {
+        phase = .extracting
         present(title: "正在验证并准备更新…", message: "", actions: [])
     }
     func showExtractionReceivedProgress(_ progress: Double) { self.progress = min(1, max(0, progress)) }
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) { reply(.install) }
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
+        phase = .installing
         present(title: "正在安装更新…", message: "安装完成后将重新启动。", actions: applicationTerminated ? [] : [UpdateAction("重新尝试退出", action: retryTerminatingApplication)])
         closeAction = nil
         window?.styleMask.remove(.closable)
     }
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) { dismissUpdateInstallation(); acknowledgement() }
-    func dismissUpdateInstallation() { window?.orderOut(nil); closeAction = nil; actions = []; offeredVersion = "" }
+    func dismissUpdateInstallation() {
+        window?.orderOut(nil); closeAction = nil; actions = []; offeredVersion = ""
+        if isBusy { phase = .idle }
+    }
     func showUpdateInFocus() { window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
 
     private func present(title: String, message: String, actions: [UpdateAction], detail: String = "", activate: Bool = true) {
@@ -244,7 +263,7 @@ struct UpdateAction: Identifiable {
 private struct UpdateProgressView: View {
     @ObservedObject var updates: ApplicationUpdates
     @ObservedObject private var localization = Localization.shared
-    private var upToDate: Bool { updates.titleKey == "已是最新版本" }
+    private var upToDate: Bool { updates.phase == .upToDate }
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 16) {

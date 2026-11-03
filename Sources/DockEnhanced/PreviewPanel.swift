@@ -209,12 +209,12 @@ final class PreviewPanel {
         if wasPresented { onVisibilityChanged?() }
         transitionGeneration += 1
         let generation = transitionGeneration
-        cards.removeAll()
         windowKeys = []
         app = nil
         if !animated {
             panel.orderOut(nil)
             panel.alphaValue = 0
+            discardContent()
             return
         }
         NSAnimationContext.runAnimationGroup { context in
@@ -224,7 +224,13 @@ final class PreviewPanel {
         } completionHandler: { [weak self] in
             guard let self, self.transitionGeneration == generation, !self.presented else { return }
             self.panel.orderOut(nil)
+            self.discardContent()
         }
+    }
+
+    private func discardContent() {
+        cards.removeAll()
+        panel.contentView = nil
     }
 }
 
