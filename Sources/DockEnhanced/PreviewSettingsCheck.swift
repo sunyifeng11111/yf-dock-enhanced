@@ -20,6 +20,7 @@ func checkPreviewSettings() async -> Int32 {
     defer { defaults.removePersistentDomain(forName: suite) }
     let fresh = SettingsModel(defaults: defaults)
     require(fresh.switcherEnabled && fresh.previewEnabled && fresh.clickEnabled, "new installations enable all three independent features")
+    require(fresh.shakeEnabled, "window shake is enabled independently on first launch")
     defaults.set(false, forKey: "enabled")
     defaults.set(true, forKey: "previewEnabled")
     let settings = SettingsModel(defaults: defaults)
@@ -28,9 +29,15 @@ func checkPreviewSettings() async -> Int32 {
     settings.switcherEnabled = false
     settings.previewEnabled = false
     settings.clickEnabled = true
+    settings.shakeEnabled = false
     let reopened = SettingsModel(defaults: defaults)
     require(!reopened.switcherEnabled && !reopened.previewEnabled && reopened.clickEnabled,
             "explicit feature choices survive reopening settings")
+    require(!reopened.shakeEnabled, "the independent window shake choice survives reopening")
+    reopened.clickEnabled = false
+    reopened.shakeEnabled = true
+    require(reopened.anyFeatureEnabled, "shake alone keeps the application feature state enabled")
+    reopened.clickEnabled = true
     defaults.synchronize()
     let restartedProcess = Process()
     restartedProcess.executableURL = Bundle.main.executableURL

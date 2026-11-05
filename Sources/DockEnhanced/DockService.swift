@@ -17,6 +17,8 @@ final class DockService {
     private let captureAccess: () -> Bool
     private let accessibilityAccess: () -> Bool
     let preview = PreviewPanel()
+    var shake = WindowShakeService()
+    private(set) var shakeEnabled = false
     lazy var switcher = NativeWindowSwitcher(controller: controller) {
         didSet { bindSwitcherImages() }
     }
@@ -122,7 +124,10 @@ final class DockService {
         refreshImageDemand()
     }
 
-    func configure(previewsEnabled: Bool, clickEnabled: Bool, switcherEnabled: Bool = true) {
+    func configure(previewsEnabled: Bool, clickEnabled: Bool, switcherEnabled: Bool = true, shakeEnabled: Bool = false) {
+        self.shakeEnabled = shakeEnabled
+        shake.setEnabled(shakeEnabled)
+        shake.onChange = { [weak self] in self?.inventory.invalidateAll() }
         if self.switcherEnabled != switcherEnabled {
             switcher.stop()
             lastSwitcherRefresh = .distantPast
@@ -140,7 +145,7 @@ final class DockService {
         }
         self.previewsEnabled = previewsEnabled
         self.clickEnabled = clickEnabled
-        if previewsEnabled || clickEnabled || switcherEnabled { start() }
+        if previewsEnabled || clickEnabled || switcherEnabled || shakeEnabled { start() }
         else { stop() }
         refreshImageAvailability()
         refreshSwitcherCapability()
@@ -173,6 +178,7 @@ final class DockService {
     }
 
     func stop() {
+        shake.setEnabled(false)
         if let pending { repost(pending.down); self.pending = nil }
         timer?.invalidate()
         timer = nil
@@ -197,6 +203,7 @@ final class DockService {
 
     func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            shake.interrupt()
             invalidateSwitcherCapability(reason: "系统暂停了快捷键监听")
             if let pending { repost(pending.down); self.pending = nil }
             if !CGEventSource.buttonState(.combinedSessionState, button: .left) &&
@@ -211,6 +218,7 @@ final class DockService {
         }
         if !accessibilityAccess() { invalidateSwitcherCapability(reason: "需要辅助功能权限") }
         if event.getIntegerValueField(.eventSourceUserData) == replayMarker { return Unmanaged.passUnretained(event) }
+        shake.observe(type: type, event: event)
         if switcherAvailable, accessibilityAccess(), switcher.handle(type: type, event: event) {
             preview.hide(animated: false)
             return nil

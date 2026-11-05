@@ -17,6 +17,10 @@ Dock Enhanced is a native macOS window utility. Hover over a Dock icon to previe
 
 It runs in the background without a Dock icon of its own. Each enhancement can be enabled independently. Built with Swift, AppKit, and SwiftUI, with Sparkle handling authenticated in-app updates.
 
+**Shake to Minimize / Restore**: drag a window's title bar quickly back and forth to keep it and minimize other windows. Release the mouse, then shake again to restore only the windows minimized by that action. Enabled by default; toggle it in **Settings → Dock Features** or the menu bar. Screen Recording is not required.
+
+This includes sibling windows of the same app, all displays, and ordinary Spaces discoverable through Accessibility. Hidden apps, full-screen windows, and windows that cannot be minimized are skipped. Previously minimized windows stay minimized. Turning the feature off retains the restore batch until re-enabled; quitting clears it.
+
 ## Features
 
 ### Hover over the Dock to find your window
@@ -71,6 +75,7 @@ Starting with **0.6.5**, release builds use a persistent self-signed certificate
 | Hover over a Dock icon | Preview that app’s windows |
 | Click a preview thumbnail | Restore and switch to that window |
 | Click the foreground app’s Dock icon | Minimize its most recently used window; click again to restore |
+| Drag a window back and forth | Minimize other windows; release and shake again to restore that batch |
 | Quickly press and release `⌘ Tab` | Return to the previous window without opening the panel |
 | Hold `⌘` and press `Tab` repeatedly | Open the panel and cycle forward |
 | Hold `⌘` and press `Shift Tab` | Cycle backward |
@@ -82,7 +87,7 @@ Starting with **0.6.5**, release builds use a persistent self-signed certificate
 
 Open settings from the menu bar. The three pages cover:
 
-- **Dock Features (Dock 功能)**: Toggle hover previews and click-to-minimize/restore independently, and adjust the preview delay.
+- **Dock Features (Dock 功能)**: Toggle hover previews, click-to-minimize/restore and shake-to-minimize/restore independently, and adjust the preview delay.
 - **Window Switching (窗口切换)**: Toggle Command+Tab enhancement and check shortcut and thumbnail availability. Turning it off restores the system Command+Tab behavior.
 - **General (通用)**: Choose the app language, manage updates, launch at login, menu bar visibility, and system permissions.
 

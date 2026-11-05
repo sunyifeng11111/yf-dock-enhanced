@@ -19,8 +19,24 @@ enum AX {
         return CGRect(origin: point, size: dimensions)
     }
 
-    static func set(_ element: AXUIElement, _ name: String, _ value: Bool) -> Bool {
-        AXUIElementSetAttributeValue(element, name as CFString, value ? kCFBooleanTrue : kCFBooleanFalse) == .success
+    static func set(_ element: AXUIElement, _ name: String, _ value: Bool, ifAllowed: () -> Bool = { true }) -> Bool {
+        onOwnerThread(element) {
+            ifAllowed() && AXUIElementSetAttributeValue(element, name as CFString, value ? kCFBooleanTrue : kCFBooleanFalse) == .success
+        }
+    }
+
+    static func perform(_ action: String, on element: AXUIElement, ifAllowed: () -> Bool = { true }) -> Bool {
+        onOwnerThread(element) { ifAllowed() && AXUIElementPerformAction(element, action as CFString) == .success }
+    }
+
+    /// AX calls to our own process execute AppKit inline on the caller's thread.
+    /// Remote windows use IPC; only local mutations need a main-thread hop.
+    private static func onOwnerThread<T>(_ element: AXUIElement, _ operation: () -> T) -> T {
+        var pid: pid_t = 0
+        if !Thread.isMainThread, AXUIElementGetPid(element, &pid) == .success, pid == getpid() {
+            return DispatchQueue.main.sync(execute: operation)
+        }
+        return operation()
     }
 }
 

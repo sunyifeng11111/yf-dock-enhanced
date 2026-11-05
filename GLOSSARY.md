@@ -28,6 +28,13 @@ The window currently highlighted in the window switcher as the candidate for a c
 A running application whose windows have been hidden together, such as through Command+H. Hiding an application is distinct from minimizing an individual window.
 _Avoid_: Minimized window
 
+**Window shake**:
+A back-and-forth movement of a window while the user is dragging it.
+_Avoid_: Mouse shake
+
+**Shake restore batch**:
+The exact windows successfully minimized together by a window shake, excluding windows that were already minimized.
+
 **Foreground application**:
 The application currently receiving the user's input.
 

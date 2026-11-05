@@ -37,36 +37,39 @@ func checkFeatureServices() async -> Int32 {
     let settings = SettingsModel(defaults: defaults)
     for (hover, click, switcher) in [(false,false,false), (false,false,true), (false,true,false), (false,true,true),
                                    (true,false,false), (true,false,true), (true,true,false), (true,true,true)] {
-        settings.previewEnabled = hover
-        settings.clickEnabled = click
-        settings.switcherEnabled = switcher
-        let reopened = SettingsModel(defaults: defaults)
-        service.configure(previewsEnabled: reopened.previewEnabled, clickEnabled: reopened.clickEnabled, switcherEnabled: reopened.switcherEnabled)
-        // Let the initial inventory render finish before manually presenting a
-        // controlled panel outside the keyboard selection workflow.
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        let name = "hover=\(hover) click=\(click) switcher=\(switcher)"
-        require(reopened.previewEnabled == hover && reopened.clickEnabled == click && reopened.switcherEnabled == switcher,
-                name + " retains all choices after reopening settings")
-        require(service.running == (hover || click || switcher), name + " has the expected service availability")
-        require(service.switcherAvailable == switcher, name + " reports actual keyboard capability independently")
-        let idleRequest = service.images.refresh([window])
-        require(idleRequest == nil, name + " never captures while both panels are hidden")
-        if hover || switcher {
-            if hover {
-                service.preview.show(item: DockItem(app: .current, frame: window.frame), windows: [window], images: service.images)
-            } else {
-                service.switcher.panel.show(candidates: [SwitcherCandidate(window: window, app: .current)], selected: window.key.switcherID, screen: NSScreen.main)
-            }
-            await service.images.refresh([window])?.value
-            require(service.images.cache[window.key] === picture, name + " permits capture with a visible consumer")
-            service.preview.hide(animated: false)
-            service.switcher.panel.hide()
-            require(service.preview.panel.contentView == nil && service.switcher.panel.panel.contentView == nil,
-                    name + " releases hidden card views instead of retaining their screenshots")
-            require(service.images.refresh([window]) == nil && service.images.cache[window.key] === picture,
-                    name + " stops capture on close and preserves cached imagery")
-        } else { require(service.images.cache.isEmpty, name + " has no retained image consumers") }
+        for shake in [false, true] {
+            settings.shakeEnabled = shake
+            settings.previewEnabled = hover
+            settings.clickEnabled = click
+            settings.switcherEnabled = switcher
+            let reopened = SettingsModel(defaults: defaults)
+            service.configure(previewsEnabled: reopened.previewEnabled, clickEnabled: reopened.clickEnabled, switcherEnabled: reopened.switcherEnabled, shakeEnabled: reopened.shakeEnabled)
+            // Let the initial inventory render finish before manually presenting a
+            // controlled panel outside the keyboard selection workflow.
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            let name = "hover=\(hover) click=\(click) switcher=\(switcher) shake=\(shake)"
+            require(reopened.previewEnabled == hover && reopened.clickEnabled == click && reopened.switcherEnabled == switcher && reopened.shakeEnabled == shake,
+                    name + " retains all choices after reopening settings")
+            require(service.running == (hover || click || switcher || shake), name + " has the expected service availability")
+            require(service.switcherAvailable == switcher, name + " reports actual keyboard capability independently")
+            let idleRequest = service.images.refresh([window])
+            require(idleRequest == nil, name + " never captures while both panels are hidden")
+            if hover || switcher {
+                if hover {
+                    service.preview.show(item: DockItem(app: .current, frame: window.frame), windows: [window], images: service.images)
+                } else {
+                    service.switcher.panel.show(candidates: [SwitcherCandidate(window: window, app: .current)], selected: window.key.switcherID, screen: NSScreen.main)
+                }
+                await service.images.refresh([window])?.value
+                require(service.images.cache[window.key] === picture, name + " permits capture with a visible consumer")
+                service.preview.hide(animated: false)
+                service.switcher.panel.hide()
+                require(service.preview.panel.contentView == nil && service.switcher.panel.panel.contentView == nil,
+                        name + " releases hidden card views instead of retaining their screenshots")
+                require(service.images.refresh([window]) == nil && service.images.cache[window.key] === picture,
+                        name + " stops capture on close and preserves cached imagery")
+            } else { require(service.images.cache.isEmpty, name + " has no retained image consumers") }
+        }
     }
     let beforeIdle = captures
     service.switcher.onCandidatesChanged?([SwitcherCandidate(window: window, app: .current)])

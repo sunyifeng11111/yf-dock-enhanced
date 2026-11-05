@@ -69,6 +69,8 @@ final class Localization: ObservableObject {
         "安装完成后将重新启动。": "The app will restart after installation.",
         "重新尝试退出": "Retry Quitting",
         "Dock 功能": "Dock Features",
+        "摇晃窗口收起 / 恢复": "Shake to Minimize / Restore",
+        "拖住窗口来回摇晃，收起其他窗口；再摇一次恢复本次收起的窗口。": "Drag a window back and forth to minimize other windows. Shake again to restore the windows minimized by this action.",
         "窗口切换": "Window Switching",
         "通用": "General",
         "让窗口预览与点击符合你的习惯。": "Customize window previews and Dock clicks.",

@@ -19,6 +19,9 @@ final class SettingsModel: ObservableObject {
     @Published var switcherEnabled: Bool {
         didSet { defaults.set(switcherEnabled, forKey: "switcherEnabled"); onFeaturesChange?() }
     }
+    @Published var shakeEnabled: Bool {
+        didSet { defaults.set(shakeEnabled, forKey: "shakeEnabled"); onFeaturesChange?() }
+    }
     @Published var switcherAvailable = false
     @Published var switcherUnavailableReason = "快捷键接管尚未就绪"
     @Published var delay: Double {
@@ -33,7 +36,7 @@ final class SettingsModel: ObservableObject {
     @Published var accessibilityGranted = false
     @Published var captureGranted = false
     @Published var running = false
-    var anyFeatureEnabled: Bool { previewEnabled || clickEnabled || switcherEnabled }
+    var anyFeatureEnabled: Bool { previewEnabled || clickEnabled || switcherEnabled || shakeEnabled }
     var switcherStatus: String {
         guard switcherEnabled else { return localization.text("增强已关闭 · 使用系统 Command+Tab") }
         guard accessibilityGranted else { return localization.text("需要辅助功能权限 · 系统 Command+Tab 仍可用") }
@@ -43,7 +46,7 @@ final class SettingsModel: ObservableObject {
     var serviceStatus: String {
         guard anyFeatureEnabled else { return localization.text("已暂停") }
         guard running else { return accessibilityGranted ? localization.text("控制服务未就绪") : localization.text("等待辅助功能授权") }
-        if switcherEnabled && !switcherAvailable { return previewEnabled || clickEnabled ? localization.text("部分功能可用") : localization.text("窗口切换不可用") }
+        if switcherEnabled && !switcherAvailable { return previewEnabled || clickEnabled || shakeEnabled ? localization.text("部分功能可用") : localization.text("窗口切换不可用") }
         return localization.text("正在运行")
     }
     var onFeaturesChange: (() -> Void)?
@@ -59,6 +62,7 @@ final class SettingsModel: ObservableObject {
         clickEnabled = defaults.object(forKey: "clickEnabled") as? Bool
             ?? defaults.object(forKey: "enabled") as? Bool ?? true
         switcherEnabled = defaults.object(forKey: "switcherEnabled") as? Bool ?? true
+        shakeEnabled = defaults.object(forKey: "shakeEnabled") as? Bool ?? true
         delay = min(1.5, max(0.4, defaults.object(forKey: "hoverDelay") as? Double ?? 0.40))
         hideMenuBarIcon = defaults.bool(forKey: "hideMenuBarIcon")
     }
@@ -264,6 +268,9 @@ struct SettingsView: View {
 
         settingToggle(L("点击收起 / 恢复"), detail: L("点击前台应用的 Dock 图标收起，再点击恢复。"), symbol: "cursorarrow.click", isOn: $model.clickEnabled,
                       needsPermission: model.clickEnabled && !model.accessibilityGranted, identifier: "settings.click")
+            .settingsGroup()
+        settingToggle(L("摇晃窗口收起 / 恢复"), detail: L("拖住窗口来回摇晃，收起其他窗口；再摇一次恢复本次收起的窗口。"), symbol: "arrow.left.and.right", isOn: $model.shakeEnabled,
+                      needsPermission: model.shakeEnabled && !model.accessibilityGranted, identifier: "settings.shake")
             .settingsGroup()
     }
 

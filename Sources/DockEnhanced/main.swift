@@ -2,6 +2,20 @@ import AppKit
 import ApplicationServices
 
 #if DEBUG
+if let index = CommandLine.arguments.firstIndex(of: "--check-self-window-shake"), CommandLine.arguments.count > index + 1,
+   let pid = Int32(CommandLine.arguments[index + 1]) {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    Task { @MainActor in exit(await checkSelfWindowShake(fixturePID: pid)) }
+    app.run()
+}
+if let index = CommandLine.arguments.firstIndex(of: "--check-window-shake"), CommandLine.arguments.count > index + 2 {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let urls = CommandLine.arguments[(index + 1)...(index + 2)].map { URL(fileURLWithPath: $0) }
+    Task { @MainActor in exit(await checkWindowShake(fixtureURLs: urls)) }
+    app.run()
+}
 if CommandLine.arguments.contains("--check-dock-inventory") {
     Task { @MainActor in exit(await checkDockWindowInventory()) }
     RunLoop.main.run()
@@ -69,6 +83,7 @@ else if let index = CommandLine.arguments.firstIndex(of: "--check-command-tab"),
 }
 else if CommandLine.arguments.contains("--check-chrome-preview") { delegate = ChromePreviewCheck() }
 else if CommandLine.arguments.contains("--check-window-count") { delegate = WindowInventoryCheck() }
+else if CommandLine.arguments.contains("--shake-fixture") { delegate = WindowShakeFixture() }
 else if CommandLine.arguments.contains("--fixture") { delegate = FixtureDelegate() }
 else { delegate = AppDelegate() }
 #else

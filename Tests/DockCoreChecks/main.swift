@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import DockCore
 
 var failures = 0
@@ -165,6 +166,41 @@ expectVisibility(changing.commandReleased() == fourth, true, "one noncurrent can
 changing.begin(windows: [current, minimizedTarget], current: current)
 changing.updateAvailableWindows([current, fourth])
 expectVisibility(changing.commandReleased() == current, true, "a replacement window cannot inherit a vanished identity during selection")
+
+var shake = WindowShakeGesture()
+let shakeFrame = CGRect(x: 100, y: 200, width: 500, height: 400)
+shake.begin(frame: shakeFrame, time: 0)
+var shakeResults: [Bool] = []
+for (index, x) in [160.0, 100, 160, 100, 160].enumerated() {
+    shakeResults.append(shake.update(frame: CGRect(x: x, y: 200, width: 500, height: 400), time: Double(index + 1) * 0.12))
+}
+expectVisibility(shakeResults == [false, false, false, true, false], true,
+                 "back-and-forth window movement triggers exactly once per drag")
+func recognizesShake(_ frames: [CGRect], interval: Double = 0.12) -> Bool {
+    var gesture = WindowShakeGesture()
+    gesture.begin(frame: shakeFrame, time: 0)
+    return frames.enumerated().map { index, frame in
+        gesture.update(frame: frame, time: Double(index + 1) * interval)
+    }.contains(true)
+}
+expectVisibility(recognizesShake([101, 99, 102, 98, 103, 97].map { CGRect(x: $0, y: 200, width: 500, height: 400) }), false,
+                 "tiny reversals while dragging do not count as a shake")
+expectVisibility(recognizesShake([130, 160, 190, 220, 250].map { CGRect(x: $0, y: 200, width: 500, height: 400) }), false,
+                 "ordinary one-way window movement never isolates other windows")
+expectVisibility(recognizesShake([160, 100, 160, 100].map { CGRect(x: $0, y: 200, width: 500, height: 400) }, interval: 0.6), false,
+                 "slow back-and-forth placement is not a shake")
+expectVisibility(recognizesShake([260, 200, 260, 200].map { CGRect(x: 100, y: $0, width: 500, height: 400) }), true,
+                 "vertical window shakes work as well as horizontal shakes")
+expectVisibility(recognizesShake([160, 100, 160, 100].map { CGRect(x: $0, y: 200, width: 520, height: 400) }), false,
+                 "resizing cancels recognition for the rest of that drag")
+shake.begin(frame: shakeFrame, time: 5)
+expectVisibility([160, 100, 160, 100].enumerated().map { index, x in
+    shake.update(frame: CGRect(x: x, y: 200, width: 500, height: 400), time: 5 + Double(index + 1) * 0.12)
+}.contains(true), true, "a new drag can trigger the next shake action")
+shake.begin(frame: shakeFrame, time: 0)
+expectVisibility([160, 100, 160, 100].enumerated().map { index, x in
+    shake.update(frame: CGRect(x: x, y: 200, width: 500, height: 400), time: 5 + Double(index + 1) * 0.12)
+}.contains(true), true, "holding the title bar before shaking does not lose the first movement")
 
 print("\(checks) checks, \(failures) failures")
 exit(failures == 0 ? 0 : 1)

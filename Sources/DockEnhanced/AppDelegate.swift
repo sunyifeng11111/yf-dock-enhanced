@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var previewItem: NSMenuItem!
     private var clickItem: NSMenuItem!
     private var switcherItem: NSMenuItem!
+    private var shakeItem: NSMenuItem!
     private var helpWindow: NSWindow?
     let preferences = SettingsModel()
     let loginItem = LoginItem()
@@ -37,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switcherItem = NSMenuItem(title: L("Command+Tab 增强"), action: #selector(toggleSwitcher), keyEquivalent: "")
         switcherItem.target = self
         menu.addItem(switcherItem)
+        shakeItem = NSMenuItem(title: L("摇晃窗口收起 / 恢复"), action: #selector(toggleShake), keyEquivalent: "")
+        shakeItem.target = self
+        menu.addItem(shakeItem)
         let help = NSMenuItem(title: L("设置…"), action: #selector(showHelp), keyEquivalent: "")
         help.target = self
         menu.addItem(help)
@@ -91,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshPermissions() {
         loginItem.refresh()
-        service.configure(previewsEnabled: preferences.previewEnabled, clickEnabled: preferences.clickEnabled, switcherEnabled: preferences.switcherEnabled)
+        service.configure(previewsEnabled: preferences.previewEnabled, clickEnabled: preferences.clickEnabled, switcherEnabled: preferences.switcherEnabled, shakeEnabled: preferences.shakeEnabled)
         preferences.accessibilityGranted = AXIsProcessTrusted()
         preferences.captureGranted = CGPreflightScreenCaptureAccess()
         updateStatus()
@@ -101,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previewItem?.title = L("悬停预览")
         clickItem?.title = L("点击收起 / 恢复")
         switcherItem?.title = L("Command+Tab 增强")
+        shakeItem?.title = L("摇晃窗口收起 / 恢复")
         for item in statusItem?.menu?.items ?? [] {
             if item.action == #selector(showHelp) { item.title = L("设置…") }
             if item.action == #selector(checkForUpdates) { item.title = L("检查更新…") }
@@ -113,11 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previewItem?.state = preferences.previewEnabled ? .on : .off
         clickItem?.state = preferences.clickEnabled ? .on : .off
         switcherItem?.state = preferences.switcherEnabled ? .on : .off
+        shakeItem?.state = preferences.shakeEnabled ? .on : .off
     }
 
     @objc private func togglePreview() { preferences.previewEnabled.toggle() }
     @objc private func toggleSwitcher() { preferences.switcherEnabled.toggle() }
     @objc private func toggleClick() { preferences.clickEnabled.toggle() }
+    @objc private func toggleShake() { preferences.shakeEnabled.toggle() }
 
     @objc private func checkForUpdates() { updates.checkNow() }
 
