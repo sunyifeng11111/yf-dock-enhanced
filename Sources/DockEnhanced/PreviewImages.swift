@@ -20,6 +20,10 @@ final class PreviewImages {
         let readyAfter: TimeInterval
     }
     private var observations: [WindowKey: Observation] = [:]
+    // Request time of the newest completed screenshot attempt per window,
+    // whether or not it produced an image.
+    private var attempted: [WindowKey: TimeInterval] = [:]
+    private var queued: [AppWindow] = []
     private var activeCapture: UUID?
     private var order: [WindowKey] = []
     private var generation = 0
@@ -35,6 +39,22 @@ final class PreviewImages {
         self.sessionAvailable = sessionAvailable
         self.now = now
         self.capture = capture
+    }
+
+    var currentTime: TimeInterval { now() }
+
+    /// True once every capturable window has had a screenshot attempt requested
+    /// at or after `since`, so a presentation opened then will not swap in a
+    /// newer image moments later.
+    func hasFreshImages(for windows: [AppWindow], since: TimeInterval) -> Bool {
+        guard sessionAvailable(), hasConsumers, permissionGranted, captureDemand, captureAccess() else { return true }
+        let time = now()
+        return windows.allSatisfy { window in
+            if window.state.minimized { return true }
+            guard let observation = observations[window.key], !observation.minimized else { return false }
+            if observation.readyAfter > time { return true }
+            return (attempted[window.key] ?? -.infinity) >= since
+        }
     }
 
     static func isSessionAvailable() -> Bool {
@@ -85,13 +105,27 @@ final class PreviewImages {
         let visible = windows.filter {
             !$0.state.minimized && time >= (observations[$0.key]?.readyAfter ?? .infinity)
         }
-        guard activeCapture == nil, !visible.isEmpty else { return nil }
+        guard !visible.isEmpty else { return nil }
+        guard activeCapture == nil else {
+            // An in-flight screenshot may predate the presentation asking now;
+            // run this request as soon as it finishes instead of dropping it.
+            let keys = Set(visible.map(\.key))
+            queued = queued.filter { !keys.contains($0.key) } + visible
+            return nil
+        }
         let token = UUID()
         activeCapture = token
         let requestedGeneration = generation
         let revisions = Dictionary(visible.map { ($0.key, observations[$0.key]!.revision) }, uniquingKeysWith: { first, _ in first })
         return Task { @MainActor in
-            defer { if self.activeCapture == token { self.activeCapture = nil } }
+            defer {
+                if self.activeCapture == token {
+                    self.activeCapture = nil
+                    let next = self.queued
+                    self.queued = []
+                    if !next.isEmpty { self.refresh(next) }
+                }
+            }
             let current: @MainActor () -> Bool = { self.sessionAvailable() && self.generation == requestedGeneration && self.hasConsumers && self.captureDemand && self.permissionGranted && self.captureAccess() }
             guard current() else { return }
             do {
@@ -100,6 +134,7 @@ final class PreviewImages {
                           self.observations[key]?.revision == revision,
                           self.observations[key]?.minimized == false else { return }
                     self.cache[key] = image
+                    self.attempted[key] = max(self.attempted[key] ?? -.infinity, time)
                     self.order.removeAll { $0 == key }
                     self.order.append(key)
                     while self.order.count > 64 {
@@ -112,6 +147,9 @@ final class PreviewImages {
             } catch {
                 // Titles, icons and previous images remain usable on capture failure.
             }
+            if current() {
+                for key in revisions.keys { self.attempted[key] = max(self.attempted[key] ?? -.infinity, time) }
+            }
             // A permission change during capture also clears existing images.
             if self.sessionAvailable() && self.hasConsumers && self.permissionGranted && !self.captureAccess() { self.clear() }
         }
@@ -120,6 +158,7 @@ final class PreviewImages {
     // Retire callbacks from captures interrupted by locking, without losing the
     // last usable image (minimized windows cannot be recaptured after unlocking).
     private func suspendCapture() {
+        queued.removeAll()
         if activeCapture != nil {
             generation += 1
             activeCapture = nil
@@ -131,6 +170,8 @@ final class PreviewImages {
         activeCapture = nil
         cache.removeAll()
         observations.removeAll()
+        attempted.removeAll()
+        queued.removeAll()
         order.removeAll()
         onUpdate?(nil)
     }
@@ -146,8 +187,8 @@ final class PreviewImages {
             return info[kCGWindowNumber as String] as? CGWindowID
         })
         var used = Set<CGWindowID>()
+        var requests: [(window: AppWindow, id: CGWindowID, filter: SCContentFilter, configuration: SCStreamConfiguration)] = []
         for window in windows {
-            guard isCurrent(), CGPreflightScreenCaptureAccess() else { return }
             let candidates = content.windows.filter {
                 $0.owningApplication?.processID == window.key.pid && !used.contains($0.windowID) && !transparent.contains($0.windowID)
             }
@@ -178,12 +219,25 @@ final class PreviewImages {
             configuration.height = max(1, Int((size.height * scale).rounded()))
             configuration.showsCursor = false
             configuration.ignoreShadowsSingleWindow = true
-            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-            guard isCurrent() else { return }
-            // The inventory and SCWindow are snapshots. Re-read live state after
-            // the await so a minimize animation cannot overwrite the good image.
-            guard Self.isStableOnScreen(window, id: capturedWindow.windowID) else { continue }
-            publish(window.key, NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)))
+            requests.append((window, capturedWindow.windowID, filter, configuration))
+        }
+        guard isCurrent(), CGPreflightScreenCaptureAccess() else { return }
+        // Submit every screenshot at once so a presentation waiting for fresh
+        // images waits for roughly one capture rather than one per window.
+        await withTaskGroup(of: (Int, CGImage?).self) { group in
+            for (index, request) in requests.enumerated() {
+                let filter = request.filter, configuration = request.configuration
+                group.addTask { (index, try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)) }
+            }
+            for await (index, image) in group {
+                guard isCurrent() else { group.cancelAll(); return }
+                guard let image else { continue }
+                let request = requests[index]
+                // The inventory and SCWindow are snapshots. Re-read live state after
+                // the await so a minimize animation cannot overwrite the good image.
+                guard Self.isStableOnScreen(request.window, id: request.id) else { continue }
+                publish(request.window.key, NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)))
+            }
         }
     }
 

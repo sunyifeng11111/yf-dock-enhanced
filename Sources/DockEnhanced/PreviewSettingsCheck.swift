@@ -206,6 +206,74 @@ func checkPreviewSettings() async -> Int32 {
             "many windows keep recent images within the 64-image memory bound")
     images.updateAvailability(hasConsumers: false, captureGranted: true)
     require(images.cache.isEmpty && images.refresh([sample]) == nil, "no image consumers clears retained imagery and prevents new capture")
+    func pause(_ seconds: Double) async { try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+    var clock: TimeInterval = 100
+    let freshGate = ControlledImageCapture()
+    let freshImages = PreviewImages(captureAccess: { true }, now: { clock }, capture: freshGate.capture)
+    let olderRequest = freshImages.refresh([sample])
+    await freshGate.waitUntilRequested()
+    clock = 101
+    let presentedAt = freshImages.currentTime
+    require(!freshImages.hasFreshImages(for: [sample], since: presentedAt),
+            "an in-flight screenshot requested before a presentation is not current for it")
+    require(freshImages.refresh([sample]) == nil, "a presentation's request during an in-flight screenshot is queued")
+    freshGate.finish(key: sample.key, image: picture)
+    await olderRequest?.value
+    require(freshImages.cache[sample.key] === picture && !freshImages.hasFreshImages(for: [sample], since: presentedAt),
+            "the older screenshot alone does not release the newer presentation")
+    await freshGate.waitUntilRequested()
+    let currentPicture = NSImage(size: NSSize(width: 40, height: 30))
+    freshGate.finish(key: sample.key, image: currentPicture)
+    await pause(0.02)
+    require(freshImages.cache[sample.key] === currentPicture && freshImages.hasFreshImages(for: [sample], since: presentedAt),
+            "the queued follow-up delivers a current screenshot and releases the presentation")
+    require(freshImages.hasFreshImages(for: [minimized], since: clock + 10), "minimized windows never hold a presentation")
+    freshImages.setCaptureDemand(active: false)
+    require(freshImages.hasFreshImages(for: [sample], since: clock + 10), "without capture demand nothing holds a presentation")
+    let failingImages = PreviewImages(captureAccess: { true }, now: { clock }, capture: { _, _, _ in throw CancellationError() })
+    let failedAt = failingImages.currentTime
+    await failingImages.refresh([sample])?.value
+    require(failingImages.hasFreshImages(for: [sample], since: failedAt), "a failed screenshot releases the presentation instead of holding it")
+
+    let switcher = NativeWindowSwitcher(controller: WindowController(), applicationFilter: { _ in false })
+    let second = AppWindow(element: sample.element, key: WindowKey(pid: getpid(), id: 502), title: "Controlled second", frame: sample.frame,
+                           state: WindowState(id: 502, minimized: false, canMinimize: true, fullScreen: false))
+    switcher.setCandidatesForCheck([SwitcherCandidate(window: sample, app: .current), SwitcherCandidate(window: second, app: .current)])
+    var selectionEvents: [Bool] = []
+    var ready = false
+    switcher.onSelectionChanged = { selectionEvents.append($0) }
+    switcher.isReadyToReveal = { ready }
+    func press(_ code: CGKeyCode) {
+        let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)!
+        event.flags = .maskCommand
+        _ = switcher.handle(type: .keyDown, event: event)
+    }
+    press(48)
+    require(selectionEvents.isEmpty, "the shortcut's input callback itself starts no screenshot work")
+    await pause(0.05)
+    require(selectionEvents == [true] && !switcher.panel.panel.isVisible,
+            "screenshots are requested during the quick-switch interval, before the chooser shows")
+    await pause(0.13)
+    require(switcher.isSelecting && !switcher.panel.panel.isVisible, "the chooser waits past the quick-switch interval for current screenshots")
+    ready = true
+    await pause(0.05)
+    require(switcher.panel.panel.isVisible, "the chooser opens as soon as current screenshots are ready")
+    press(53)
+    require(selectionEvents == [true, false] && !switcher.panel.panel.isVisible, "ending a selection ends its screenshot demand")
+    ready = false
+    press(48)
+    await pause(0.25)
+    require(!switcher.panel.panel.isVisible, "slow screenshots keep the chooser closed within the wait limit")
+    await pause(0.15)
+    require(switcher.panel.panel.isVisible, "slow screenshots never hold the chooser beyond the wait limit")
+    press(53)
+    press(48)
+    await pause(0.05)
+    press(53)
+    await pause(0.4)
+    require(selectionEvents.suffix(2) == [true, false] && !switcher.panel.panel.isVisible,
+            "a selection ended before it opens ends its demand and never shows the chooser")
+    switcher.stop()
     print("\(checks) preview/settings checks, \(failures) failures")
     return failures == 0 ? 0 : 1
 }

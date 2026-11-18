@@ -45,6 +45,10 @@ final class DockService {
     private var hoverPolicy = PreviewHoverPolicy()
     private var contextMenuInteraction = false
     private var contextMenuStarted = Date.distantPast
+    // Screenshots begin when a presentation becomes likely (Command+Tab press,
+    // Dock hover) so panels open with current content. Both end with it.
+    private var switcherImagesSince: TimeInterval?
+    private var hoverPrefetch: (pid: pid_t, since: TimeInterval)?
 
     init(captureAccess: @escaping () -> Bool = { CGPreflightScreenCaptureAccess() },
          accessibilityAccess: @escaping () -> Bool = { AXIsProcessTrusted() }, capture: PreviewImages.Capture? = nil,
@@ -67,8 +71,12 @@ final class DockService {
             guard let self else { return }
             self.refreshImageDemand()
             // Each presentation gets a fresh image, even if it was reopened
-            // within the normal one-second preview refresh interval.
-            self.lastCapture = .distantPast
+            // within the normal one-second preview refresh interval. A hover
+            // prefetch for this application already supplied it.
+            let prefetched = self.preview.isVisible && self.hoverPrefetch != nil &&
+                self.hoverPrefetch?.pid == self.preview.app?.processIdentifier
+            self.lastCapture = prefetched ? Date() : .distantPast
+            if self.preview.isVisible { self.hoverPrefetch = nil }
         }
         preview.onSelect = { [weak self] window, app in
             self?.inventory.invalidate(app.processIdentifier)
@@ -90,10 +98,25 @@ final class DockService {
         switcher.panel.onVisibilityChanged = { [weak self] in
             guard let self else { return }
             self.refreshImageDemand()
-            if self.running, self.switcherEnabled, self.switcher.panel.panel.isVisible {
+            // A keyboard selection requested its screenshots when it began.
+            if self.running, self.switcherEnabled, self.switcher.panel.panel.isVisible, self.switcherImagesSince == nil {
                 self.publishSwitcherImages()
                 self.refreshSwitcherImages(self.switcher.candidates)
             }
+        }
+        switcher.onSelectionChanged = { [weak self] active in
+            guard let self else { return }
+            self.switcherImagesSince = nil
+            self.refreshImageDemand()
+            guard active, self.running, self.switcherEnabled, self.switcher.isSelecting else { return }
+            self.switcherImagesSince = self.images.currentTime
+            self.publishSwitcherImages()
+            self.refreshSwitcherImages(self.switcher.candidates)
+        }
+        switcher.isReadyToReveal = { [weak self] in
+            guard let self, let since = self.switcherImagesSince else { return true }
+            let presented = Set(self.switcher.panel.windowIDs)
+            return self.images.hasFreshImages(for: self.switcher.candidates.filter { presented.contains($0.id) }.map(\.window), since: since)
         }
         switcher.onCandidatesChanged = { [weak self] candidates in
             guard let self, self.running, self.switcherEnabled, self.switcher.panel.panel.isVisible else { return }
@@ -108,8 +131,8 @@ final class DockService {
     }
 
     private func refreshImageDemand() {
-        images.setCaptureDemand(active: running && ((previewsEnabled && preview.isVisible) ||
-            (switcherEnabled && switcher.panel.panel.isVisible)))
+        images.setCaptureDemand(active: running && ((previewsEnabled && (preview.isVisible || hoverPrefetch != nil)) ||
+            (switcherEnabled && (switcher.isSelecting || switcher.panel.panel.isVisible))))
     }
 
     private func publishSwitcherImages() {
@@ -139,6 +162,7 @@ final class DockService {
         }
         if self.previewsEnabled != previewsEnabled {
             hovered = nil
+            hoverPrefetch = nil
             hoverPolicy = PreviewHoverPolicy()
             preview.hide(animated: false)
             lastCapture = .distantPast
@@ -194,6 +218,8 @@ final class DockService {
         hoverPolicy = PreviewHoverPolicy()
         contextMenuInteraction = false
         hovered = nil
+        hoverPrefetch = nil
+        switcherImagesSince = nil
         prepared.removeAll()
         preview.hide()
         images.clear()
@@ -394,23 +420,34 @@ final class DockService {
         if let item = locator.item(at: pointer) {
             hoverPolicy.hover(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate)
             lastInside = now
-            if item.app.processIdentifier != hovered?.app.processIdentifier {
+            let pid = item.app.processIdentifier
+            if pid != hovered?.app.processIdentifier {
                 hovered = item
+                endHoverPrefetch()
                 preview.hide()
                 inventory.refresh(item.app)
             }
-            if previewsEnabled, hoverPolicy.allowsPreview(appID: item.app.processIdentifier, time: now.timeIntervalSinceReferenceDate,
-                                         delay: PreviewPreferences.hoverDelay, menuOpen: contextMenuInteraction),
-               let windows = prepared[item.app.processIdentifier] {
+            let time = now.timeIntervalSinceReferenceDate
+            if previewsEnabled, !preview.isVisible, hoverPrefetch == nil,
+               hoverPolicy.allowsPreview(appID: pid, time: time, delay: 0, menuOpen: contextMenuInteraction),
+               let windows = prepared[pid] {
+                hoverPrefetch = (pid, images.currentTime)
+                refreshImageDemand()
+                images.refresh(windows)
+            }
+            if previewsEnabled, hoverPolicy.allowsPreview(appID: pid, time: time, delay: PreviewPreferences.hoverDelay, menuOpen: contextMenuInteraction),
+               let windows = prepared[pid], preview.isVisible || hoverPreviewReady(pid: pid, windows: windows) {
                 refreshPreview(item: item, windows: windows)
             }
         } else if preview.containsPointer(pointer) {
             lastInside = now
         } else {
             hoverPolicy.leaveIcon()
+            if !preview.isVisible { endHoverPrefetch() }
             if now.timeIntervalSince(lastInside) > 0.25 {
                 hovered = nil
                 preview.hide()
+                endHoverPrefetch()
             }
         }
         if previewsEnabled, preview.isVisible, now.timeIntervalSince(lastCapture) > 1, let app = preview.app {
@@ -421,6 +458,18 @@ final class DockService {
                 images.refresh(windows)
             }
         }
+    }
+
+    private func hoverPreviewReady(pid: pid_t, windows: [AppWindow]) -> Bool {
+        guard let hoverPrefetch, hoverPrefetch.pid == pid else { return true }
+        return images.hasFreshImages(for: windows, since: hoverPrefetch.since) ||
+            images.currentTime - hoverPrefetch.since >= PreviewPreferences.hoverDelay + NativeWindowSwitcher.imageWaitLimit
+    }
+
+    private func endHoverPrefetch() {
+        guard hoverPrefetch != nil else { return }
+        hoverPrefetch = nil
+        refreshImageDemand()
     }
 
     private func refreshPreview(item: DockItem, windows: [AppWindow]) {

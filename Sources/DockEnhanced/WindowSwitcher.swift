@@ -26,6 +26,13 @@ final class NativeWindowSwitcher {
     private(set) var workflow = WindowSwitcher()
     private(set) var candidates: [SwitcherCandidate] = []
     var onCandidatesChanged: (([SwitcherCandidate]) -> Void)?
+    /// Called with `true` once a selection's cards exist and `false` when it ends.
+    var onSelectionChanged: ((Bool) -> Void)?
+    /// Whether the cards' screenshots are current enough to reveal the chooser.
+    var isReadyToReveal: (() -> Bool)?
+    /// Longest the chooser waits for screenshots beyond the quick-switch interval.
+    static let imageWaitLimit = 0.2
+    private var revealDeadline = 0.0
     private var focusedWindows: [pid_t: SwitcherWindowID] = [:]
     private var sessionCandidates: [SwitcherCandidate] = []
     private let scanner = WindowController()
@@ -70,6 +77,10 @@ final class NativeWindowSwitcher {
     }
 
     var isSelecting: Bool { workflow.snapshot != nil }
+
+    #if DEBUG
+    func setCandidatesForCheck(_ candidates: [SwitcherCandidate]) { self.candidates = candidates }
+    #endif
 
     func refreshCandidates() {
         guard !scanning else { return }
@@ -184,7 +195,9 @@ final class NativeWindowSwitcher {
                 lastPointer = NSEvent.mouseLocation
                 let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let current = pid.flatMap { focusedWindows[$0] }
-                workflow.begin(candidates: candidates.map(\.descriptor), current: current, reverse: event.flags.contains(.maskShift), time: ProcessInfo.processInfo.systemUptime)
+                let began = ProcessInfo.processInfo.systemUptime
+                revealDeadline = began + 0.12 + Self.imageWaitLimit
+                workflow.begin(candidates: candidates.map(\.descriptor), current: current, reverse: event.flags.contains(.maskShift), time: began)
                 if let snapshot = workflow.snapshot {
                     let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                     sessionCandidates = snapshot.windows.compactMap { byID[$0] }
@@ -195,14 +208,11 @@ final class NativeWindowSwitcher {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
                         self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen, availableFrame: self.screenVisibleFrame(self.sessionScreen))
+                        // Screenshots start here, during the no-flash interval, so
+                        // cards can open with current content.
+                        self.onSelectionChanged?(true)
                     }
-                    let work = DispatchWorkItem { [weak self] in
-                        guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
-                        self.workflow.advanceTime(to: ProcessInfo.processInfo.systemUptime)
-                        self.render()
-                    }
-                    displayWork = work
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+                    scheduleReveal(selectionGeneration, after: 0.12)
                     onCandidatesChanged?(sessionCandidates)
                 }
             } else { workflow.advance(reverse: event.flags.contains(.maskShift)) }
@@ -289,18 +299,35 @@ final class NativeWindowSwitcher {
         }
     }
 
+    private func scheduleReveal(_ selectionGeneration: Int, after delay: Double) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
+            let time = ProcessInfo.processInfo.systemUptime
+            if time < self.revealDeadline, self.isReadyToReveal?() == false {
+                self.scheduleReveal(selectionGeneration, after: 1.0 / 60)
+                return
+            }
+            self.workflow.advanceTime(to: time)
+            self.render()
+        }
+        displayWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
     private func hideFailure() {
         failureWork?.cancel(); failureWork = nil
         failureNotice.panel.orderOut(nil)
     }
 
     private func endPresentation() {
+        let hadSession = sessionScreen != nil || !sessionCandidates.isEmpty
         sessionGeneration += 1
         commandMissingSince = nil
         displayWork?.cancel(); displayWork = nil
         sessionCandidates = []
         sessionScreen = nil
         panel.hide()
+        if hadSession { onSelectionChanged?(false) }
     }
 
     private func screenForCurrentWindow(_ current: SwitcherWindowID?) -> NSScreen? {
@@ -375,7 +402,7 @@ private final class SwitcherCard: NSView {
     }
     func update(image: NSImage?) {
         hasPreview = image != nil
-        thumbnail.image = image ?? candidate.app.icon
+        setThumbnail(image ?? candidate.app.icon, on: thumbnail)
         thumbnail.frame = image == nil ? CGRect(x: (frame.width - 64) / 2, y: 72, width: 64, height: 64) : CGRect(x: 8, y: 50, width: frame.width - 16, height: 108)
         setAccessibilityHelp(candidate.window.state.minimized && image != nil ? L("已最小化 · 缓存画面") : L("选择并切换此窗口"))
     }

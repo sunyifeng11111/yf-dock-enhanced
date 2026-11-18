@@ -77,7 +77,7 @@ final class PreviewCard: NSButton {
     }
 
     func update(image: NSImage?, icon: NSImage?) {
-        thumbnail.image = image ?? icon
+        setThumbnail(image ?? icon, on: thumbnail)
         let help = snapshot.state.minimized ? (image == nil ? L("已最小化 · 点击恢复") : L("已最小化 · 缓存画面")) : L("点击切换窗口")
         setAccessibilityHelp(help)
     }
@@ -232,6 +232,20 @@ final class PreviewPanel {
         cards.removeAll()
         panel.contentView = nil
     }
+}
+
+/// Newer screenshots dissolve into place instead of replacing visible content
+/// with a hard cut.
+func setThumbnail(_ image: NSImage?, on view: NSImageView) {
+    guard view.image !== image else { return }
+    if view.image != nil, image != nil, view.window?.isVisible == true, let layer = view.layer {
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = 0.18
+        transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(transition, forKey: "thumbnail")
+    }
+    view.image = image
 }
 
 /// Keep the glass background separate from thumbnails so the material does not
