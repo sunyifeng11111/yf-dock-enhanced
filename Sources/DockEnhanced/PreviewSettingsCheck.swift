@@ -248,24 +248,34 @@ func checkPreviewSettings() async -> Int32 {
         event.flags = .maskCommand
         _ = switcher.handle(type: .keyDown, event: event)
     }
+    var requestedBeforeCards = false
+    switcher.onSelectionChanged = { active in
+        if active { requestedBeforeCards = switcher.panel.windowIDs.isEmpty }
+        selectionEvents.append(active)
+    }
+    ready = true
     press(48)
     require(selectionEvents.isEmpty, "the shortcut's input callback itself starts no screenshot work")
     await pause(0.05)
-    require(selectionEvents == [true] && !switcher.panel.panel.isVisible,
-            "screenshots are requested during the quick-switch interval, before the chooser shows")
-    await pause(0.13)
-    require(switcher.isSelecting && !switcher.panel.panel.isVisible, "the chooser waits past the quick-switch interval for current screenshots")
-    ready = true
-    await pause(0.05)
-    require(switcher.panel.panel.isVisible, "the chooser opens as soon as current screenshots are ready")
+    require(selectionEvents == [true] && requestedBeforeCards && !switcher.panel.panel.isVisible,
+            "screenshots are requested before cards are built, during the quick-switch interval")
+    await pause(0.1)
+    require(switcher.panel.panel.isVisible, "ready screenshots add no wait beyond the quick-switch interval")
     press(53)
     require(selectionEvents == [true, false] && !switcher.panel.panel.isVisible, "ending a selection ends its screenshot demand")
     ready = false
     press(48)
-    await pause(0.25)
-    require(!switcher.panel.panel.isVisible, "slow screenshots keep the chooser closed within the wait limit")
-    await pause(0.15)
-    require(switcher.panel.panel.isVisible, "slow screenshots never hold the chooser beyond the wait limit")
+    await pause(0.135)
+    require(switcher.isSelecting && !switcher.panel.panel.isVisible, "the chooser briefly waits past the quick-switch interval for current screenshots")
+    ready = true
+    await pause(0.025)
+    require(switcher.panel.panel.isVisible, "the chooser opens as soon as current screenshots are ready")
+    press(53)
+    ready = false
+    press(48)
+    await pause(0.12 + NativeWindowSwitcher.imageWaitLimit + 0.06)
+    require(NativeWindowSwitcher.imageWaitLimit <= 0.05 && switcher.panel.panel.isVisible,
+            "slow screenshots hold the chooser at most 50 ms beyond the quick-switch interval")
     press(53)
     press(48)
     await pause(0.05)

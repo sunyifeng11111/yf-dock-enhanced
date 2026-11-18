@@ -31,7 +31,9 @@ final class NativeWindowSwitcher {
     /// Whether the cards' screenshots are current enough to reveal the chooser.
     var isReadyToReveal: (() -> Bool)?
     /// Longest the chooser waits for screenshots beyond the quick-switch interval.
-    static let imageWaitLimit = 0.2
+    /// Kept short: opening promptly matters more than every card being current;
+    /// late screenshots dissolve in.
+    static let imageWaitLimit = 0.05
     private var revealDeadline = 0.0
     private var focusedWindows: [pid_t: SwitcherWindowID] = [:]
     private var sessionCandidates: [SwitcherCandidate] = []
@@ -77,6 +79,7 @@ final class NativeWindowSwitcher {
     }
 
     var isSelecting: Bool { workflow.snapshot != nil }
+    var selectionCandidates: [SwitcherCandidate] { sessionCandidates }
 
     #if DEBUG
     func setCandidatesForCheck(_ candidates: [SwitcherCandidate]) { self.candidates = candidates }
@@ -207,10 +210,11 @@ final class NativeWindowSwitcher {
                     // the no-flash interval is still running.
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
-                        self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen, availableFrame: self.screenVisibleFrame(self.sessionScreen))
-                        // Screenshots start here, during the no-flash interval, so
-                        // cards can open with current content.
+                        // Screenshots start here, during the no-flash interval and
+                        // before building cards, so cards can open with current content.
                         self.onSelectionChanged?(true)
+                        guard self.sessionGeneration == selectionGeneration, self.isSelecting else { return }
+                        self.panel.prepareContent(candidates: self.sessionCandidates, screen: self.sessionScreen, availableFrame: self.screenVisibleFrame(self.sessionScreen))
                     }
                     scheduleReveal(selectionGeneration, after: 0.12)
                     onCandidatesChanged?(sessionCandidates)

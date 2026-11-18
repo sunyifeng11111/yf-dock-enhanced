@@ -179,7 +179,9 @@ final class PreviewImages {
     @MainActor private static func captureWindows(_ windows: [AppWindow], isCurrent: @escaping @MainActor () -> Bool,
                                                  publish: @escaping @MainActor (WindowKey, NSImage) -> Void) async throws {
         guard isCurrent() else { return }
-        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        // Only on-screen windows can be captured (see isStableOnScreen), and
+        // omitting the rest makes this listing noticeably cheaper.
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard isCurrent() else { return }
         let windowInfo = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let transparent = Set(windowInfo.compactMap { info -> CGWindowID? in

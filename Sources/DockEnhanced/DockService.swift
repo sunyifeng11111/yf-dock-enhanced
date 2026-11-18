@@ -111,12 +111,11 @@ final class DockService {
             guard active, self.running, self.switcherEnabled, self.switcher.isSelecting else { return }
             self.switcherImagesSince = self.images.currentTime
             self.publishSwitcherImages()
-            self.refreshSwitcherImages(self.switcher.candidates)
+            self.images.refresh(self.switcher.selectionCandidates.map(\.window))
         }
         switcher.isReadyToReveal = { [weak self] in
             guard let self, let since = self.switcherImagesSince else { return true }
-            let presented = Set(self.switcher.panel.windowIDs)
-            return self.images.hasFreshImages(for: self.switcher.candidates.filter { presented.contains($0.id) }.map(\.window), since: since)
+            return self.images.hasFreshImages(for: self.switcher.selectionCandidates.map(\.window), since: since)
         }
         switcher.onCandidatesChanged = { [weak self] candidates in
             guard let self, self.running, self.switcherEnabled, self.switcher.panel.panel.isVisible else { return }
@@ -463,8 +462,11 @@ final class DockService {
     private func hoverPreviewReady(pid: pid_t, windows: [AppWindow]) -> Bool {
         guard let hoverPrefetch, hoverPrefetch.pid == pid else { return true }
         return images.hasFreshImages(for: windows, since: hoverPrefetch.since) ||
-            images.currentTime - hoverPrefetch.since >= PreviewPreferences.hoverDelay + NativeWindowSwitcher.imageWaitLimit
+            images.currentTime - hoverPrefetch.since >= PreviewPreferences.hoverDelay + Self.hoverImageWaitLimit
     }
+
+    /// The hover delay already covers most screenshots; this bounds slow ones.
+    private static let hoverImageWaitLimit = 0.2
 
     private func endHoverPrefetch() {
         guard hoverPrefetch != nil else { return }
