@@ -143,7 +143,11 @@ final class PreviewPanel {
         }
         position.x = min(max(position.x, available.minX + 8), available.maxX - size.width - 8)
         position.y = min(max(position.y, available.minY + 8), available.maxY - size.height - 8)
-        panel.setFrame(CGRect(origin: position, size: size), display: false)
+        // The window never moves during the reveal: a window frame animation
+        // steps in whole points. A transparent strip below the surface leaves
+        // room for its layer to slide up without being clipped.
+        let slide: CGFloat = 6
+        panel.setFrame(CGRect(x: position.x, y: position.y - slide, width: size.width, height: size.height + slide), display: false)
         let content = NSView(frame: CGRect(origin: .zero, size: size))
         let header = NSTextField(labelWithString: item.app.localizedName ?? L("应用"))
         header.font = .systemFont(ofSize: 14, weight: .medium)
@@ -167,21 +171,32 @@ final class PreviewPanel {
         }
         scroll.documentView = document
         content.addSubview(scroll)
-        panel.contentView = makeWindowPreviewBackground(content: content)
-        let finalFrame = panel.frame
-        if !wasPresented {
-            panel.alphaValue = 0
-            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                panel.setFrame(finalFrame.offsetBy(dx: 0, dy: -6), display: false)
-            }
-        }
+        let surface = makeWindowPreviewBackground(content: content)
+        surface.frame.origin = CGPoint(x: 0, y: slide)
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: size.width, height: size.height + slide))
+        container.wantsLayer = true
+        container.addSubview(surface)
+        panel.contentView = container
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !wasPresented { panel.alphaValue = 0 }
         panel.orderFrontRegardless()
         if !wasPresented { onVisibilityChanged?() }
+        if !wasPresented, !reduceMotion, let layer = surface.layer {
+            let rise = CABasicAnimation(keyPath: "transform.translation.y")
+            rise.fromValue = -slide
+            rise.toValue = 0
+            rise.duration = 0.18
+            rise.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(rise, forKey: "reveal")
+        }
+        let generation = transitionGeneration
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0.08 : 0.18
+            context.duration = reduceMotion ? 0.08 : 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
-            panel.animator().setFrame(finalFrame, display: true)
+        } completionHandler: { [weak self] in
+            guard let self, self.transitionGeneration == generation, self.presented else { return }
+            self.panel.invalidateShadow()
         }
     }
 
