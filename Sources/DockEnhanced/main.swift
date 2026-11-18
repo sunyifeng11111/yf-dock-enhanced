@@ -26,6 +26,13 @@ if CommandLine.arguments.contains("--check-application-updates") {
     RunLoop.main.run()
 }
 if CommandLine.arguments.contains("--check-localization") { exit(checkLocalization()) }
+if let index = CommandLine.arguments.firstIndex(of: "--measure-capture"), CommandLine.arguments.count > index + 1 {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let output = CommandLine.arguments[index + 1]
+    Task { @MainActor in exit(await measureCaptureTiming(output: output)) }
+    app.run()
+}
 if CommandLine.arguments.contains("--diagnose") {
     print("Accessibility=\(AXIsProcessTrusted()) ScreenCapture=\(CGPreflightScreenCaptureAccess())")
     exit(0)
